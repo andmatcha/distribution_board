@@ -1,0 +1,5 @@
+.vscode/
+.pio/
+.backup/
+.DS_Store
+.specstory
