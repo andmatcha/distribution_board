@@ -139,4 +139,18 @@ uint32_t encoder_get_checksum_error_count(void);
  */
 uint32_t encoder_get_uart_error_count(void);
 
+/**
+ * @brief UART RX complete callback helper
+ * @param huart Pointer to UART handle
+ * @retval None
+ */
+void encoder_rx_complete_callback(UART_HandleTypeDef *huart);
+
+/**
+ * @brief UART error callback helper
+ * @param huart Pointer to UART handle
+ * @retval None
+ */
+void encoder_error_callback(UART_HandleTypeDef *huart);
+
 #endif /* ENCODER_H */

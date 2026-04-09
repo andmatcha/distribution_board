@@ -5,7 +5,7 @@
  ******************************************************************************
  */
 
-#include "encoder.h"
+#include "modules/encoder.h"
 
 #define ENCODER_BUFFER_SIZE 2U
 #define ENCODER_MAX_DEVICES 4U
@@ -320,7 +320,7 @@ uint32_t encoder_get_uart_error_count(void)
   return encoder_device_get_uart_error_count(&default_encoder_device);
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+void encoder_rx_complete_callback(UART_HandleTypeDef *huart)
 {
   EncoderDevice *device;
 
@@ -352,7 +352,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   }
 }
 
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+void encoder_error_callback(UART_HandleTypeDef *huart)
 {
   EncoderDevice *device;
 

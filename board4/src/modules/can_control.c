@@ -1,8 +1,8 @@
 /* CAN control implementation */
-#include "can_control.h"
-#include "servo.h"
-#include "dc_motor.h"
-#include "led.h"
+#include "modules/can_control.h"
+#include "modules/servo.h"
+#include "modules/dc_motor.h"
+#include "modules/led.h"
 #include <stdio.h>
 
 #define DC_SPEED 100  // DCモーター速度 (%)

@@ -21,12 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "led.h"
-#include "servo.h"
-#include "dc_motor.h"
-#include "can_control.h"
-#include "encoder.h"
-#include <stdio.h>
+#include "app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -110,21 +105,7 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  led_set(LED_COLOR_RED, LED_STATE_OFF);
-  led_set(LED_COLOR_YELLOW, LED_STATE_OFF);
-  led_set(LED_COLOR_GREEN, LED_STATE_ON);
-
-  // サーボモーター初期化
-  servo_init(&htim2);
-
-  // DCモーター初期化
-  dc_motor_init(&htim3);
-
-  // CAN受信制御初期化
-  can_control_init(&hcan, &htim3);
-
-  // エンコーダー初期化
-  encoder_init(&huart1);
+  init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -134,12 +115,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // エンコーダー値を取得して表示（必要なときだけ）
-    uint16_t position = 0;
-    if (encoder_get_position(&position)) {
-      printf("Encoder Data: %u\n", position);
-      (void)can_control_enqueue_encoder_position(position);
-    }
+    poll();
   }
   /* USER CODE END 3 */
 }

@@ -1,8 +1,8 @@
-#include "base_horizon.h"
+#include "modules/base_horizon.h"
 
-#include "base_can_scheduler.h"
-#include "encoder.h"
-#include "led.h"
+#include "modules/base_can_scheduler.h"
+#include "modules/encoder.h"
+#include "modules/led.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>

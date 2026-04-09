@@ -1,5 +1,5 @@
 // LED制御API（列挙型）と文字列入力ラッパー
-#include "led.h"
+#include "modules/led.h"
 
 static uint16_t led_color_to_pin(LedColor color) {
   switch (color) {
@@ -22,5 +22,4 @@ void led_set(LedColor color, LedState state) {
   GPIO_PinState pin_state = (state == LED_STATE_ON) ? GPIO_PIN_SET : GPIO_PIN_RESET;
   HAL_GPIO_WritePin(GPIOA, pin, pin_state);
 }
-
 

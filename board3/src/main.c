@@ -21,10 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "led.h"
-#include "can_control.h"
-#include "encoder.h"
-#include <stdio.h>
+#include "app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -101,15 +98,7 @@ int main(void)
   MX_CAN_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  led_set(LED_COLOR_RED, LED_STATE_OFF);
-  led_set(LED_COLOR_YELLOW, LED_STATE_OFF);
-  led_set(LED_COLOR_GREEN, LED_STATE_ON);
-
-  // CAN送信制御初期化
-  can_control_init(&hcan);
-
-  // エンコーダー初期化
-  encoder_init(&huart1);
+  init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -119,12 +108,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // エンコーダー値を取得して表示（必要なときだけ）
-    uint16_t position = 0;
-    if (encoder_get_position(&position)) {
-      printf("Encoder Data: %u\n", position);
-      (void)can_control_enqueue_encoder_position(position);
-    }
+    poll();
   }
   /* USER CODE END 3 */
 }

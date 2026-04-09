@@ -1,5 +1,5 @@
 /* DC motor control implementation */
-#include "dc_motor.h"
+#include "modules/dc_motor.h"
 #include <stdio.h>
 
 // DCモーター用タイマーハンドル
