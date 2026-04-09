@@ -1,5 +1,5 @@
 /* Servo motor control implementation */
-#include "servo.h"
+#include "modules/servo.h"
 #include <stdio.h>
 
 // サーボモーター用タイマーハンドル

@@ -1,8 +1,8 @@
-#include "base_horizon.h"
+#include "modules/base_horizon.h"
 
-#include "base_can_scheduler.h"
-#include "encoder.h"
-#include "led.h"
+#include "modules/base_can_scheduler.h"
+#include "modules/encoder.h"
+#include "modules/led.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,6 +22,8 @@ typedef struct
   bool is_first_reading;
   bool has_last_total_counts;
   int32_t last_total_counts;
+  bool has_origin_position;
+  uint16_t origin_position;
   bool has_pending_transition;
   int16_t pending_distance_tenths_mm;
   uint8_t pending_transition_count;
@@ -60,6 +62,8 @@ static int16_t base_horizon_pending_turns = 0;
 static int32_t base_horizon_unwrap_counts(uint16_t pos, int32_t last_total_counts);
 static bool base_horizon_queue_distance_can(int16_t distance_tenths_mm);
 static void base_horizon_initialize_runtime(void);
+static void base_horizon_capture_origin_position(void);
+static uint16_t base_horizon_shift_position(uint16_t pos);
 static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, int16_t turns);
 static bool base_horizon_read_sample(BaseHorizonSample *sample);
 static bool base_horizon_validate_distance(int16_t distance_tenths_mm);
@@ -84,8 +88,8 @@ static bool base_horizon_queue_distance_can(int16_t distance_tenths_mm)
 {
   uint8_t data[2];
 
-  data[0] = (uint8_t)(distance_tenths_mm & 0xFF);
-  data[1] = (uint8_t)((distance_tenths_mm >> 8) & 0xFF);
+  data[0] = (uint8_t)((distance_tenths_mm >> 8) & 0xFF);
+  data[1] = (uint8_t)(distance_tenths_mm & 0xFF);
 
   return base_can_scheduler_stage(BASE_CAN_CHANNEL_HORIZON,
                                   BASE_HORIZON_CAN_STD_ID,
@@ -115,22 +119,59 @@ static void base_horizon_initialize_runtime(void)
   printf("Base Horizon initialization complete.\n");
 }
 
+static void base_horizon_capture_origin_position(void)
+{
+  uint32_t start_tick;
+  uint16_t origin_position = 0U;
+
+  if (base_horizon_encoder_uart == NULL) {
+    return;
+  }
+
+  encoder_device_request_data(&base_horizon_encoder_device, ENCODER_CMD_POSITION);
+  start_tick = HAL_GetTick();
+
+  while ((HAL_GetTick() - start_tick) < BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
+    if (encoder_device_get_position(&base_horizon_encoder_device, &origin_position)) {
+      base_horizon_state.origin_position = (uint16_t)(origin_position & 0x3FFFU);
+      base_horizon_state.has_origin_position = true;
+      break;
+    }
+  }
+
+  base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
+  base_horizon_encoder_phase_start_tick = 0U;
+}
+
+static uint16_t base_horizon_shift_position(uint16_t pos)
+{
+  uint16_t raw_pos = (uint16_t)(pos & 0x3FFFU);
+
+  if (!base_horizon_state.has_origin_position) {
+    return raw_pos;
+  }
+
+  return (uint16_t)((raw_pos - base_horizon_state.origin_position) & 0x3FFFU);
+}
+
 static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, int16_t turns)
 {
   int32_t raw_total_counts;
   int32_t total_counts;
   int32_t predicted_total_counts;
   int32_t turns_mismatch;
+  uint16_t shifted_pos;
 
   if (sample == NULL) {
     return false;
   }
 
-  raw_total_counts = ((int32_t)turns * 16384) + (int32_t)(pos & 0x3FFF);
+  shifted_pos = base_horizon_shift_position(pos);
+  raw_total_counts = ((int32_t)turns * 16384) + (int32_t)shifted_pos;
   total_counts = raw_total_counts;
 
   if (base_horizon_state.has_last_total_counts) {
-    predicted_total_counts = base_horizon_unwrap_counts(pos, base_horizon_state.last_total_counts);
+    predicted_total_counts = base_horizon_unwrap_counts(shifted_pos, base_horizon_state.last_total_counts);
     turns_mismatch = raw_total_counts - predicted_total_counts;
 
     if (turns_mismatch >= 8192 || turns_mismatch <= -8192) {
@@ -138,7 +179,7 @@ static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, i
     }
   }
 
-  sample->pos = pos;
+  sample->pos = shifted_pos;
   sample->turns = turns;
   sample->total_counts = total_counts;
   sample->distance_tenths_mm = (int16_t)roundf((float)total_counts * 50.0f / 16384.0f);
@@ -320,6 +361,7 @@ void base_horizon_init(UART_HandleTypeDef *encoder_uart)
   base_horizon_pending_pos = 0U;
   base_horizon_pending_turns = 0;
   base_horizon_initialize_runtime();
+  base_horizon_capture_origin_position();
 }
 
 void base_horizon_process(void)

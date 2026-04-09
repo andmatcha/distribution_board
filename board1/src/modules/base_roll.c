@@ -1,7 +1,7 @@
-#include "base_roll.h"
+#include "modules/base_roll.h"
 
-#include "base_can_scheduler.h"
-#include "encoder.h"
+#include "modules/base_can_scheduler.h"
+#include "modules/encoder.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>

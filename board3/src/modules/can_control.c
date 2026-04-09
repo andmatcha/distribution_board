@@ -1,5 +1,5 @@
 /* CAN control implementation */
-#include "can_control.h"
+#include "modules/can_control.h"
 
 #define CAN_TX_QUEUE_SIZE 8U
 

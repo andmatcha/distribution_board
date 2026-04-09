@@ -21,12 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "led.h"
-#include "servo.h"
-#include "dc_motor.h"
-#include "can_control.h"
-#include "encoder.h"
-#include <stdio.h>
+#include "app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -110,21 +105,7 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  led_set(LED_COLOR_RED, LED_STATE_OFF);
-  led_set(LED_COLOR_YELLOW, LED_STATE_OFF);
-  led_set(LED_COLOR_GREEN, LED_STATE_ON);
-
-  // サーボモーター初期化
-  servo_init(&htim2);
-
-  // DCモーター初期化
-  dc_motor_init(&htim3);
-
-  // CAN受信制御初期化
-  can_control_init(&hcan, &htim3);
-
-  // エンコーダー初期化
-  encoder_init(&huart1);
+  init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -134,12 +115,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    // エンコーダー値を取得して表示（必要なときだけ）
-    uint16_t position = 0;
-    if (encoder_get_position(&position)) {
-      printf("Encoder Data: %u\n", position);
-      (void)can_control_enqueue_encoder_position(position);
-    }
+    poll();
   }
   /* USER CODE END 3 */
 }
@@ -162,7 +138,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL4;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL8;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -174,10 +150,10 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
