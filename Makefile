@@ -6,7 +6,7 @@ BOARD3_DIR := board3
 BOARD4_DIR := board4
 BOARD_ENV := genericSTM32F103TB
 
-.PHONY: help board1 board2 board3 board4 build-board1 build-board2 build-board3 build-board4 build-all upload-board1 upload-board2 upload-board3 upload-board4 list info monitor-board1 monitor-board2 monitor-board3 monitor-board4 restructure-board1 restructure-board2 restructure-board3 restructure-board4
+.PHONY: help board1 board2 board3 board4 build-board1 build-board2 build-board3 build-board4 build-all upload-board1 upload-board2 upload-board3 upload-board4 list info monitor monitor-board1 monitor-board2 monitor-board3 monitor-board4 restructure-board1 restructure-board2 restructure-board3 restructure-board4
 
 help:
 	@printf '%s\n' \
@@ -19,10 +19,11 @@ help:
 		'make build-board3      Build board3 without upload' \
 		'make build-board4      Build board4 without upload' \
 		'make build-all         Build every board project' \
-		'make monitor-board1    Open ITM monitor for board1' \
-		'make monitor-board2    Open ITM monitor for board2' \
-		'make monitor-board3    Open ITM monitor for board3' \
-		'make monitor-board4    Open ITM monitor for board4'
+		'make monitor           Open the shared ITM monitor' \
+		'make monitor-board1    Alias of make monitor' \
+		'make monitor-board2    Alias of make monitor' \
+		'make monitor-board3    Alias of make monitor' \
+		'make monitor-board4    Alias of make monitor'
 
 board1: upload-board1
 
@@ -65,16 +66,19 @@ info:
 	st-info --probe
 
 monitor-board1:
-	./board1/stlink_monitor.zsh
+	./stlink_monitor.zsh
 
 monitor-board2:
-	./board2/stlink_monitor.zsh
+	./stlink_monitor.zsh
 
 monitor-board3:
-	./board3/stlink_monitor.zsh
+	./stlink_monitor.zsh
 
 monitor-board4:
-	./board4/stlink_monitor.zsh
+	./stlink_monitor.zsh
+
+monitor:
+	./stlink_monitor.zsh
 
 restructure-board1:
 	cd ./board1 && ./restructure.sh
