@@ -88,8 +88,8 @@ static bool base_horizon_queue_distance_can(int16_t distance_tenths_mm)
 {
   uint8_t data[2];
 
-  data[0] = (uint8_t)(distance_tenths_mm & 0xFF);
-  data[1] = (uint8_t)((distance_tenths_mm >> 8) & 0xFF);
+  data[0] = (uint8_t)((distance_tenths_mm >> 8) & 0xFF);
+  data[1] = (uint8_t)(distance_tenths_mm & 0xFF);
 
   return base_can_scheduler_stage(BASE_CAN_CHANNEL_HORIZON,
                                   BASE_HORIZON_CAN_STD_ID,
