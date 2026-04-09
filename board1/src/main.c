@@ -21,7 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "base_can_scheduler.h"
 #include "base_horizon.h"
+#include "base_roll.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -101,7 +103,9 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  base_horizon_init(&huart1, &hcan);
+  base_can_scheduler_init(&hcan);
+  base_horizon_init(&huart1);
+  base_roll_init(&huart2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -109,6 +113,8 @@ int main(void)
   while (1)
   {
     base_horizon_process();
+    base_roll_process();
+    base_can_scheduler_process();
     HAL_Delay(1);
     /* USER CODE END WHILE */
 
