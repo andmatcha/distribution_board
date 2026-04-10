@@ -138,9 +138,9 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
       return;
     }
 
-    // 符号付き整数として解釈
-    int16_t data = (int16_t)(rx_data[4]<<8 | rx_data[5]);
-    if (data < 0) {
+    // 符号付き整数として解釈。MANUAL current[6] は正値が open、負値が close。
+    int16_t data = (int16_t)((uint16_t)rx_data[4] << 8 | rx_data[5]);
+    if (data > 0) {
       servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
       printf("SERVO OPEN\n");
     } else if (data == 0) {
