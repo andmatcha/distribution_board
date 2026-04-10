@@ -26,7 +26,7 @@ void servo_control(ServoDirection direction, ServoMode mode);
 
 /**
  * @brief サーボモーター初期化
- * @param htim TIM3ハンドル
+ * @param htim TIM2ハンドル
  */
 void servo_init(TIM_HandleTypeDef *htim);
 

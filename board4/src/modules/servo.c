@@ -7,8 +7,8 @@ static TIM_HandleTypeDef *htim_servo = NULL;
 static const uint32_t servo_channel = TIM_CHANNEL_2;
 
 // サーボPWM周波数: 50Hz (20ms周期)
-// TIM2設定: 32MHz / (prescaler+1) / (period+1) = PWM周波数
-// 現在の設定: prescaler=31, period=19999 → 32MHz/32/20000 = 50Hz
+// TIM2設定: 64MHz / (prescaler+1) / (period+1) = PWM周波数
+// 現在の設定: prescaler=63, period=19999 → 64MHz/64/20000 = 50Hz
 //
 // サーボモーター仕様:
 // - 制御角: 270度
