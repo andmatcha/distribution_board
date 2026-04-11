@@ -1,5 +1,6 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
+#include <stdio.h>
 
 #define CAN_TX_QUEUE_SIZE 8U
 
@@ -13,7 +14,9 @@ static bool can_tx_queue_pop(uint16_t *position);
 // CAN送信初期化
 void can_control_init(CAN_HandleTypeDef *hcan) {
   hcan_ctrl = hcan;
-  HAL_CAN_Start(hcan_ctrl);
+  if ((hcan_ctrl != NULL) && (HAL_CAN_Start(hcan_ctrl) != HAL_OK)) {
+    printf("CAN start error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+  }
 }
 
 bool can_control_enqueue_encoder_position(uint16_t position) {
@@ -51,8 +54,17 @@ void can_control_process_tx(void) {
     tx_data[1] = (uint8_t)(position & 0xFFU);
 
     if (HAL_CAN_AddTxMessage(hcan_ctrl, &tx_header, tx_data, &tx_mailbox) != HAL_OK) {
+      printf("CAN send error: id=0x%03lX err=0x%08lX\n",
+             (unsigned long)tx_header.StdId,
+             (unsigned long)HAL_CAN_GetError(hcan_ctrl));
       break;
     }
+
+    printf("CAN send ok: id=0x%03lX data=%02X %02X mailbox=%lu\n",
+           (unsigned long)tx_header.StdId,
+           tx_data[0],
+           tx_data[1],
+           (unsigned long)tx_mailbox);
   }
 }
 
