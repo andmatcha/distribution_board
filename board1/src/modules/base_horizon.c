@@ -182,7 +182,7 @@ static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, i
   sample->pos = shifted_pos;
   sample->turns = turns;
   sample->total_counts = total_counts;
-  sample->distance_tenths_mm = (int16_t)roundf((float)total_counts * 50.0f / 16384.0f);
+  sample->distance_tenths_mm = (int16_t)roundf((float)total_counts * -50.0f / 16384.0f);
   return true;
 }
 
