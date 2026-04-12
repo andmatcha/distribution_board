@@ -3,10 +3,10 @@
 #include "modules/base_can_scheduler.h"
 #include "modules/encoder.h"
 #include "modules/led.h"
+#include "debug_log.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 
 typedef struct
 {
@@ -116,7 +116,7 @@ static void base_horizon_initialize_runtime(void)
   led_set(LED_COLOR_RED, LED_STATE_ON);
   led_set(LED_COLOR_YELLOW, LED_STATE_ON);
   led_set(LED_COLOR_GREEN, LED_STATE_ON);
-  printf("Base Horizon initialization complete.\n");
+  LOG("Base Horizon initialization complete.\n");
 }
 
 static void base_horizon_capture_origin_position(void)
@@ -339,19 +339,19 @@ static void base_horizon_publish_sample(const BaseHorizonSample *sample)
     abs_distance_tenths_mm = sample->distance_tenths_mm;
     if (abs_distance_tenths_mm < 0) {
       abs_distance_tenths_mm = -abs_distance_tenths_mm;
-      printf("Base Horizon Encoder: %d turns, %u pos -> Distance: -%ld.%01ld mm (counts=%ld)\n",
-             sample->turns,
-             sample->pos,
-             (long)(abs_distance_tenths_mm / 10),
-             (long)(abs_distance_tenths_mm % 10),
-             (long)sample->total_counts);
+      LOG("Base Horizon Encoder: %d turns, %u pos -> Distance: -%ld.%01ld mm (counts=%ld)\n",
+          sample->turns,
+          sample->pos,
+          (long)(abs_distance_tenths_mm / 10),
+          (long)(abs_distance_tenths_mm % 10),
+          (long)sample->total_counts);
     } else {
-      printf("Base Horizon Encoder: %d turns, %u pos -> Distance: %ld.%01ld mm (counts=%ld)\n",
-             sample->turns,
-             sample->pos,
-             (long)(abs_distance_tenths_mm / 10),
-             (long)(abs_distance_tenths_mm % 10),
-             (long)sample->total_counts);
+      LOG("Base Horizon Encoder: %d turns, %u pos -> Distance: %ld.%01ld mm (counts=%ld)\n",
+          sample->turns,
+          sample->pos,
+          (long)(abs_distance_tenths_mm / 10),
+          (long)(abs_distance_tenths_mm % 10),
+          (long)sample->total_counts);
     }
   }
 }

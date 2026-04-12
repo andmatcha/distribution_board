@@ -1,10 +1,10 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
-#include "main.h"
-#include "modules/servo.h"
+#include "debug_log.h"
 #include "modules/dc_motor.h"
 #include "modules/led.h"
-#include <stdio.h>
+#include "modules/servo.h"
+#include "main.h"
 
 #define DC_SPEED 100  // DCモーター速度 (%)
 #define CAN_TX_QUEUE_SIZE 8U
@@ -30,14 +30,14 @@ void can_control_init(CAN_HandleTypeDef *hcan, TIM_HandleTypeDef *htim) {
 
   // CAN受信割り込み開始
   if ((hcan_ctrl != NULL) && (HAL_CAN_Start(hcan_ctrl) != HAL_OK)) {
-    printf("CAN start error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    LOG("CAN start error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
     Error_Handler();
   }
   if ((hcan_ctrl != NULL) &&
       (HAL_CAN_ActivateNotification(hcan_ctrl,
                                     CAN_IT_RX_FIFO0_MSG_PENDING | CAN_ERROR_NOTIFICATION_MASK) != HAL_OK)) {
-    printf("CAN notification error: 0x%08lX\n",
-           (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    LOG("CAN notification error: 0x%08lX\n",
+        (unsigned long)HAL_CAN_GetError(hcan_ctrl));
     Error_Handler();
   }
 }
@@ -77,17 +77,17 @@ void can_control_process_tx(void) {
     tx_data[1] = (uint8_t)(position & 0xFFU);
 
     if (HAL_CAN_AddTxMessage(hcan_ctrl, &tx_header, tx_data, &tx_mailbox) != HAL_OK) {
-      printf("CAN send error: id=0x%03lX err=0x%08lX\n",
-             (unsigned long)tx_header.StdId,
-             (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+      LOG("CAN send error: id=0x%03lX err=0x%08lX\n",
+          (unsigned long)tx_header.StdId,
+          (unsigned long)HAL_CAN_GetError(hcan_ctrl));
       Error_Handler();
     }
 
-    printf("CAN send ok: id=0x%03lX data=%02X %02X mailbox=%lu\n",
-           (unsigned long)tx_header.StdId,
-           tx_data[0],
-           tx_data[1],
-           (unsigned long)tx_mailbox);
+    LOG("CAN send ok: id=0x%03lX data=%02X %02X mailbox=%lu\n",
+        (unsigned long)tx_header.StdId,
+        tx_data[0],
+        tx_data[1],
+        (unsigned long)tx_mailbox);
   }
 }
 
@@ -106,7 +106,7 @@ static void can_filter_config(void) {
   filter_config.SlaveStartFilterBank = 14;
 
   if (HAL_CAN_ConfigFilter(hcan_ctrl, &filter_config) != HAL_OK) {
-    printf("CAN filter error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    LOG("CAN filter error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
     Error_Handler();
   }
 }
@@ -166,13 +166,13 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
     int16_t data = (int16_t)(rx_data[4]<<8 | rx_data[5]);
     if (data < 0) {
       servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
-      printf("SERVO OPEN\n");
+      LOG("SERVO OPEN\n");
     } else if (data == 0) {
       servo_control(SERVO_DIR_STOP, SERVO_MODE_NORMAL);
-      printf("SERVO STOP\n");
+      LOG("SERVO STOP\n");
     } else {
       servo_control(SERVO_DIR_CLOSE, SERVO_MODE_NORMAL);
-      printf("SERVO CLOSE\n");
+      LOG("SERVO CLOSE\n");
     }
   }
   led_set(LED_COLOR_YELLOW, LED_STATE_OFF);
