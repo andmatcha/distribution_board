@@ -1,5 +1,6 @@
 /* Servo motor control implementation */
 #include "modules/servo.h"
+#include "main.h"
 #include <stdio.h>
 
 // サーボモーター用タイマーハンドル
@@ -42,6 +43,9 @@ void servo_init(TIM_HandleTypeDef *htim) {
   HAL_StatusTypeDef status = HAL_TIM_PWM_Start(htim_servo, servo_channel);
   printf("[SERVO_INIT] HAL_TIM_PWM_Start status: %d (0=OK)\n", status);
   printf("[SERVO_INIT] TIM CR1 after PWM_Start: 0x%04lX (bit0 should be 1 for counter enable)\n", htim_servo->Instance->CR1);
+  if (status != HAL_OK) {
+    Error_Handler();
+  }
 
   // 初期位置
   servo_set_angle(current_angle);

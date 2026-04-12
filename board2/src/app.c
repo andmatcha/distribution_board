@@ -26,7 +26,9 @@ void poll(void)
 
   if (encoder_get_position(&position)) {
     printf("Encoder Data: %u\n", position);
-    (void)can_control_enqueue_encoder_position(position);
+    if (!can_control_enqueue_encoder_position(position)) {
+      Error_Handler();
+    }
   }
 
   can_control_process_tx();
@@ -43,4 +45,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
   encoder_error_callback(huart);
+}
+
+void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan_handle)
+{
+  (void)hcan_handle;
+  Error_Handler();
 }

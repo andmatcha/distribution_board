@@ -107,7 +107,7 @@ static void base_horizon_initialize_runtime(void)
                            base_horizon_encoder_uart,
                            BASE_HORIZON_ENCODER_DE_PORT,
                            BASE_HORIZON_ENCODER_DE_PIN)) {
-    return;
+    Error_Handler();
   }
 
   encoder_device_reset(&base_horizon_encoder_device);
@@ -137,6 +137,10 @@ static void base_horizon_capture_origin_position(void)
       base_horizon_state.has_origin_position = true;
       break;
     }
+  }
+
+  if (!base_horizon_state.has_origin_position) {
+    Error_Handler();
   }
 
   base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
@@ -212,8 +216,7 @@ static bool base_horizon_read_sample(BaseHorizonSample *sample)
           break;
         }
         if ((now_tick - base_horizon_encoder_phase_start_tick) >= BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-          break;
+          Error_Handler();
         }
         return false;
 
@@ -229,8 +232,7 @@ static bool base_horizon_read_sample(BaseHorizonSample *sample)
           return base_horizon_build_sample(sample, base_horizon_pending_pos, base_horizon_pending_turns);
         }
         if ((now_tick - base_horizon_encoder_phase_start_tick) >= BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-          break;
+          Error_Handler();
         }
         return false;
 
@@ -320,8 +322,11 @@ static void base_horizon_publish_sample(const BaseHorizonSample *sample)
   base_horizon_state.has_last_total_counts = true;
 
   now_tick = HAL_GetTick();
-  if (base_horizon_should_send_can(sample->distance_tenths_mm, now_tick) &&
-      base_horizon_queue_distance_can(sample->distance_tenths_mm)) {
+  if (base_horizon_should_send_can(sample->distance_tenths_mm, now_tick)) {
+    if (!base_horizon_queue_distance_can(sample->distance_tenths_mm)) {
+      Error_Handler();
+    }
+
     base_horizon_state.last_can_distance_tenths_mm = sample->distance_tenths_mm;
     base_horizon_state.last_can_send_tick = now_tick;
     base_horizon_state.has_last_can_distance = true;
