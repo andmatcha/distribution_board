@@ -1,8 +1,11 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
+#include "main.h"
 #include <stdio.h>
 
 #define CAN_TX_QUEUE_SIZE 8U
+#define CAN_ERROR_NOTIFICATION_MASK \
+  (CAN_IT_ERROR | CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE)
 
 static CAN_HandleTypeDef *hcan_ctrl = NULL;
 static volatile uint16_t encoder_tx_queue[CAN_TX_QUEUE_SIZE];
@@ -16,6 +19,12 @@ void can_control_init(CAN_HandleTypeDef *hcan) {
   hcan_ctrl = hcan;
   if ((hcan_ctrl != NULL) && (HAL_CAN_Start(hcan_ctrl) != HAL_OK)) {
     printf("CAN start error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    Error_Handler();
+  }
+  if ((hcan_ctrl != NULL) &&
+      (HAL_CAN_ActivateNotification(hcan_ctrl, CAN_ERROR_NOTIFICATION_MASK) != HAL_OK)) {
+    printf("CAN notification error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    Error_Handler();
   }
 }
 
@@ -57,7 +66,7 @@ void can_control_process_tx(void) {
       printf("CAN send error: id=0x%03lX err=0x%08lX\n",
              (unsigned long)tx_header.StdId,
              (unsigned long)HAL_CAN_GetError(hcan_ctrl));
-      break;
+      Error_Handler();
     }
 
     printf("CAN send ok: id=0x%03lX data=%02X %02X mailbox=%lu\n",

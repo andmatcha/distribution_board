@@ -49,7 +49,7 @@ static void base_roll_initialize_runtime(void)
                            base_roll_encoder_uart,
                            BASE_ROLL_ENCODER_DE_PORT,
                            BASE_ROLL_ENCODER_DE_PIN)) {
-    return;
+    Error_Handler();
   }
 
   printf("Base Roll initialization complete.\n");
@@ -81,8 +81,7 @@ static bool base_roll_read_position(uint16_t *position)
           return true;
         }
         if ((now_tick - base_roll_encoder_phase_start_tick) >= BASE_ROLL_ENCODER_RESPONSE_TIMEOUT_MS) {
-          base_roll_encoder_phase = BASE_ROLL_ENCODER_PHASE_REQUEST_POSITION;
-          break;
+          Error_Handler();
         }
         return false;
 
@@ -130,8 +129,11 @@ static void base_roll_publish_position(uint16_t position)
   uint32_t now_tick;
 
   now_tick = HAL_GetTick();
-  if (base_roll_should_send_can(position, now_tick) &&
-      base_roll_queue_position_can(position)) {
+  if (base_roll_should_send_can(position, now_tick)) {
+    if (!base_roll_queue_position_can(position)) {
+      Error_Handler();
+    }
+
     base_roll_state.last_can_position = position;
     base_roll_state.last_can_send_tick = now_tick;
     base_roll_state.has_last_can_position = true;

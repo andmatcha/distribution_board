@@ -1,5 +1,6 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
+#include "main.h"
 #include "modules/servo.h"
 #include "modules/dc_motor.h"
 #include "modules/led.h"
@@ -7,6 +8,8 @@
 
 #define DC_SPEED 100  // DCモーター速度 (%)
 #define CAN_TX_QUEUE_SIZE 8U
+#define CAN_ERROR_NOTIFICATION_MASK \
+  (CAN_IT_ERROR | CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE)
 
 static CAN_HandleTypeDef *hcan_ctrl = NULL;
 static TIM_HandleTypeDef *htim_ctrl = NULL;
@@ -28,11 +31,14 @@ void can_control_init(CAN_HandleTypeDef *hcan, TIM_HandleTypeDef *htim) {
   // CAN受信割り込み開始
   if ((hcan_ctrl != NULL) && (HAL_CAN_Start(hcan_ctrl) != HAL_OK)) {
     printf("CAN start error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    Error_Handler();
   }
   if ((hcan_ctrl != NULL) &&
-      (HAL_CAN_ActivateNotification(hcan_ctrl, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)) {
+      (HAL_CAN_ActivateNotification(hcan_ctrl,
+                                    CAN_IT_RX_FIFO0_MSG_PENDING | CAN_ERROR_NOTIFICATION_MASK) != HAL_OK)) {
     printf("CAN notification error: 0x%08lX\n",
            (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    Error_Handler();
   }
 }
 
@@ -74,7 +80,7 @@ void can_control_process_tx(void) {
       printf("CAN send error: id=0x%03lX err=0x%08lX\n",
              (unsigned long)tx_header.StdId,
              (unsigned long)HAL_CAN_GetError(hcan_ctrl));
-      break;
+      Error_Handler();
     }
 
     printf("CAN send ok: id=0x%03lX data=%02X %02X mailbox=%lu\n",
@@ -99,7 +105,10 @@ static void can_filter_config(void) {
   filter_config.FilterActivation = ENABLE;
   filter_config.SlaveStartFilterBank = 14;
 
-  HAL_CAN_ConfigFilter(hcan_ctrl, &filter_config);
+  if (HAL_CAN_ConfigFilter(hcan_ctrl, &filter_config) != HAL_OK) {
+    printf("CAN filter error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    Error_Handler();
+  }
 }
 
 static bool can_tx_queue_pop(uint16_t *position) {
@@ -120,7 +129,7 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
 
   // FIFO0からメッセージ取得
   if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, rx_data) != HAL_OK) {
-    return;
+    Error_Handler();
   }
 
   // 受信IDによって処理を分岐
