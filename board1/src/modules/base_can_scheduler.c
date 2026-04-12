@@ -1,5 +1,6 @@
 #include "modules/base_can_scheduler.h"
-#include <stdio.h>
+
+#include "debug_log.h"
 
 typedef struct
 {
@@ -63,10 +64,10 @@ static bool base_can_scheduler_send(BaseCanChannel channel)
                                 &tx_mailbox);
   if (status != HAL_OK) {
     error_code = HAL_CAN_GetError(base_can_scheduler_handle);
-    printf("CAN send error: ch=%lu id=0x%03lX err=0x%08lX\n",
-           (unsigned long)channel,
-           (unsigned long)base_can_slots[channel].header.StdId,
-           (unsigned long)error_code);
+    LOG("CAN send error: ch=%lu id=0x%03lX err=0x%08lX\n",
+        (unsigned long)channel,
+        (unsigned long)base_can_slots[channel].header.StdId,
+        (unsigned long)error_code);
     if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
       base_can_bus_off_until_tick = HAL_GetTick() + BASE_CAN_BUS_OFF_COOLDOWN_MS;
     }
@@ -95,17 +96,17 @@ static void base_can_scheduler_log_tx(BaseCanChannel channel,
     return;
   }
 
-  printf("CAN send ok: ch=%lu id=0x%03lX dlc=%lu data=",
-         (unsigned long)channel,
-         (unsigned long)header->StdId,
-         (unsigned long)header->DLC);
+  LOG("CAN send ok: ch=%lu id=0x%03lX dlc=%lu data=",
+      (unsigned long)channel,
+      (unsigned long)header->StdId,
+      (unsigned long)header->DLC);
   for (index = 0U; index < header->DLC; index++) {
-    printf("%02X", data[index]);
+    LOG("%02X", data[index]);
     if ((index + 1U) < header->DLC) {
-      printf(" ");
+      LOG(" ");
     }
   }
-  printf(" mailbox=%lu\n", (unsigned long)tx_mailbox);
+  LOG(" mailbox=%lu\n", (unsigned long)tx_mailbox);
 }
 
 void base_can_scheduler_init(CAN_HandleTypeDef *can_handle)
@@ -122,15 +123,15 @@ void base_can_scheduler_init(CAN_HandleTypeDef *can_handle)
 
   if (base_can_scheduler_handle != NULL) {
     if (HAL_CAN_Start(base_can_scheduler_handle) != HAL_OK) {
-      printf("CAN start error: 0x%08lX\n",
-             (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
+      LOG("CAN start error: 0x%08lX\n",
+          (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
       Error_Handler();
     }
 
     if (HAL_CAN_ActivateNotification(base_can_scheduler_handle,
                                      BASE_CAN_ERROR_NOTIFICATION_MASK) != HAL_OK) {
-      printf("CAN notification error: 0x%08lX\n",
-             (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
+      LOG("CAN notification error: 0x%08lX\n",
+          (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
       Error_Handler();
     }
   }

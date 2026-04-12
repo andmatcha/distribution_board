@@ -4,7 +4,7 @@
 #include "modules/encoder.h"
 #include "modules/led.h"
 
-#include <stdio.h>
+#include "debug_log.h"
 
 extern CAN_HandleTypeDef hcan;
 extern UART_HandleTypeDef huart1;
@@ -25,7 +25,7 @@ void poll(void)
   uint16_t position = 0;
 
   if (encoder_get_position(&position)) {
-    printf("Encoder Data: %u\n", position);
+    LOG("Encoder Data: %u\n", position);
     if (!can_control_enqueue_encoder_position(position)) {
       Error_Handler();
     }

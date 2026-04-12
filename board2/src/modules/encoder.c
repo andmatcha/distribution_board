@@ -6,7 +6,7 @@
  */
 
 #include "modules/encoder.h"
-#include <stdio.h>
+#include "debug_log.h"
 
 /* Private defines -----------------------------------------------------------*/
 #define ENCODER_CMD 0x54
@@ -142,9 +142,8 @@ void encoder_error_callback(UART_HandleTypeDef *huart)
     return;
   }
 
-  uint32_t err = HAL_UART_GetError(huart);
   encoder_uart_error_count++;
-  printf("[USART1] Error: 0x%08lX\n", (unsigned long)err);
+  LOG("[USART1] Error: 0x%08lX\n", (unsigned long)HAL_UART_GetError(huart));
   Error_Handler();
 }
 
