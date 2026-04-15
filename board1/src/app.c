@@ -4,6 +4,7 @@
 #include "modules/base_horizon.h"
 #include "modules/base_roll.h"
 #include "modules/encoder.h"
+#include "debug_log.h"
 
 extern CAN_HandleTypeDef hcan;
 extern UART_HandleTypeDef huart1;
@@ -36,6 +37,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan_handle)
 {
-  (void)hcan_handle;
-  Error_Handler();
+  LOG("HAL_CAN_ErrorCallback: err=0x%08lX\n",
+      (unsigned long)HAL_CAN_GetError(hcan_handle));
+  base_can_scheduler_handle_error(hcan_handle);
 }

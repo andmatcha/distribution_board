@@ -8,10 +8,12 @@
 
 typedef struct
 {
+  bool runtime_ready;
   bool has_last_can_position;
   uint16_t last_can_position;
   uint32_t last_can_send_tick;
   uint32_t last_log_tick;
+  uint32_t last_error_log_tick;
 } BaseRollState;
 
 typedef enum
@@ -31,28 +33,42 @@ static uint32_t base_roll_encoder_phase_start_tick = 0U;
 #define BASE_ROLL_CAN_STD_ID 0x301U
 #define BASE_ROLL_CAN_KEEPALIVE_INTERVAL_MS 200U
 #define BASE_ROLL_LOG_INTERVAL_MS 100U
+#define BASE_ROLL_ERROR_LOG_INTERVAL_MS 200U
 #define BASE_ROLL_ENCODER_RESPONSE_TIMEOUT_MS 10U
 
-static void base_roll_initialize_runtime(void);
+static bool base_roll_should_log_error(uint32_t now_tick);
+static bool base_roll_initialize_runtime(void);
 static bool base_roll_read_position(uint16_t *position);
 static bool base_roll_should_send_can(uint16_t position, uint32_t now_tick);
 static bool base_roll_queue_position_can(uint16_t position);
 static void base_roll_publish_position(uint16_t position);
 
-static void base_roll_initialize_runtime(void)
+static bool base_roll_should_log_error(uint32_t now_tick)
+{
+  if ((now_tick - base_roll_state.last_error_log_tick) < BASE_ROLL_ERROR_LOG_INTERVAL_MS) {
+    return false;
+  }
+
+  base_roll_state.last_error_log_tick = now_tick;
+  return true;
+}
+
+static bool base_roll_initialize_runtime(void)
 {
   if (base_roll_encoder_uart == NULL) {
-    return;
+    return false;
   }
 
   if (!encoder_device_init(&base_roll_encoder_device,
                            base_roll_encoder_uart,
                            BASE_ROLL_ENCODER_DE_PORT,
                            BASE_ROLL_ENCODER_DE_PIN)) {
-    Error_Handler();
+    LOG("Base Roll encoder init failed.\n");
+    return false;
   }
 
   LOG("Base Roll initialization complete.\n");
+  return true;
 }
 
 static bool base_roll_read_position(uint16_t *position)
@@ -70,7 +86,15 @@ static bool base_roll_read_position(uint16_t *position)
 
     switch (base_roll_encoder_phase) {
       case BASE_ROLL_ENCODER_PHASE_REQUEST_POSITION:
-        encoder_device_request_data(&base_roll_encoder_device, ENCODER_CMD_POSITION);
+        if (!encoder_device_request_data(&base_roll_encoder_device, ENCODER_CMD_POSITION)) {
+          if (base_roll_should_log_error(now_tick)) {
+            LOG("Base Roll position request failed: uart_err=%lu checksum_err=%lu\n",
+                (unsigned long)encoder_device_get_uart_error_count(&base_roll_encoder_device),
+                (unsigned long)encoder_device_get_checksum_error_count(&base_roll_encoder_device));
+          }
+          base_roll_encoder_phase = BASE_ROLL_ENCODER_PHASE_REQUEST_POSITION;
+          return false;
+        }
         base_roll_encoder_phase_start_tick = now_tick;
         base_roll_encoder_phase = BASE_ROLL_ENCODER_PHASE_WAIT_POSITION;
         break;
@@ -81,7 +105,13 @@ static bool base_roll_read_position(uint16_t *position)
           return true;
         }
         if ((now_tick - base_roll_encoder_phase_start_tick) >= BASE_ROLL_ENCODER_RESPONSE_TIMEOUT_MS) {
-          Error_Handler();
+          if (base_roll_should_log_error(now_tick)) {
+            LOG("Base Roll position timeout: uart_err=%lu checksum_err=%lu\n",
+                (unsigned long)encoder_device_get_uart_error_count(&base_roll_encoder_device),
+                (unsigned long)encoder_device_get_checksum_error_count(&base_roll_encoder_device));
+            encoder_device_log_timeout_state(&base_roll_encoder_device, "Base Roll timeout detail");
+          }
+          base_roll_encoder_phase = BASE_ROLL_ENCODER_PHASE_REQUEST_POSITION;
         }
         return false;
 
@@ -131,7 +161,10 @@ static void base_roll_publish_position(uint16_t position)
   now_tick = HAL_GetTick();
   if (base_roll_should_send_can(position, now_tick)) {
     if (!base_roll_queue_position_can(position)) {
-      Error_Handler();
+      if (base_roll_should_log_error(now_tick)) {
+        LOG("Base Roll CAN stage failed.\n");
+      }
+      return;
     }
 
     base_roll_state.last_can_position = position;
@@ -151,12 +184,16 @@ void base_roll_init(UART_HandleTypeDef *encoder_uart)
   base_roll_state = (BaseRollState){0};
   base_roll_encoder_phase = BASE_ROLL_ENCODER_PHASE_REQUEST_POSITION;
   base_roll_encoder_phase_start_tick = 0U;
-  base_roll_initialize_runtime();
+  base_roll_state.runtime_ready = base_roll_initialize_runtime();
 }
 
 void base_roll_process(void)
 {
   uint16_t position = 0U;
+
+  if (!base_roll_state.runtime_ready) {
+    return;
+  }
 
   if (base_roll_read_position(&position)) {
     base_roll_publish_position(position);

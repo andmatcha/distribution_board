@@ -7,6 +7,8 @@
 
 #include "modules/encoder.h"
 
+#include "debug_log.h"
+
 #define ENCODER_BUFFER_SIZE 2U
 #define ENCODER_MAX_DEVICES 4U
 #define ENCODER_DEFAULT_DE_PIN GPIO_PIN_8
@@ -21,6 +23,10 @@ static bool encoder_decode_position(uint8_t lsb, uint8_t msb, uint16_t *position
 static bool encoder_decode_turns(uint8_t lsb, uint8_t msb, int16_t *turns);
 static bool encoder_register_device(EncoderDevice *device);
 static EncoderDevice *encoder_find_device(UART_HandleTypeDef *huart);
+#if DEBUG_LOG_ENABLED
+static const char *encoder_uart_name(const UART_HandleTypeDef *huart);
+static uint32_t encoder_dma_remaining(const UART_HandleTypeDef *huart);
+#endif
 static void encoder_tx_enable(const EncoderDevice *device);
 static void encoder_rx_enable(const EncoderDevice *device);
 
@@ -118,6 +124,36 @@ static EncoderDevice *encoder_find_device(UART_HandleTypeDef *huart)
   return NULL;
 }
 
+#if DEBUG_LOG_ENABLED
+static const char *encoder_uart_name(const UART_HandleTypeDef *huart)
+{
+  if (huart == NULL || huart->Instance == NULL) {
+    return "unknown";
+  }
+
+  if (huart->Instance == USART1) {
+    return "USART1";
+  }
+
+  if (huart->Instance == USART2) {
+    return "USART2";
+  }
+
+  return "UART";
+}
+#endif
+
+#if DEBUG_LOG_ENABLED
+static uint32_t encoder_dma_remaining(const UART_HandleTypeDef *huart)
+{
+  if (huart == NULL || huart->hdmarx == NULL || huart->hdmarx->Instance == NULL) {
+    return 0U;
+  }
+
+  return huart->hdmarx->Instance->CNDTR;
+}
+#endif
+
 static void encoder_tx_enable(const EncoderDevice *device)
 {
   if (device == NULL || device->de_port == NULL || device->de_pin == 0U) {
@@ -165,13 +201,13 @@ bool encoder_device_init(EncoderDevice *device,
   return true;
 }
 
-void encoder_device_reset(EncoderDevice *device)
+bool encoder_device_reset(EncoderDevice *device)
 {
   uint8_t cmds[] = {ENCODER_CMD_RESET_1, ENCODER_CMD_RESET_2};
   uint32_t start_tick;
 
   if (device == NULL || device->huart == NULL) {
-    return;
+    return false;
   }
 
   HAL_UART_DMAStop(device->huart);
@@ -180,30 +216,38 @@ void encoder_device_reset(EncoderDevice *device)
   encoder_tx_enable(device);
   if (HAL_UART_Transmit(device->huart, cmds, 2U, 10U) != HAL_OK) {
     device->uart_error_count++;
-    Error_Handler();
+    LOG("Encoder reset tx error: uart=%s err=0x%08lX count=%lu\n",
+        encoder_uart_name(device->huart),
+        (unsigned long)device->huart->ErrorCode,
+        (unsigned long)device->uart_error_count);
+    return false;
   }
 
   start_tick = HAL_GetTick();
   while ((device->huart->Instance->SR & UART_FLAG_TC) == 0U) {
     if ((HAL_GetTick() - start_tick) >= ENCODER_UART_TX_TIMEOUT_MS) {
       device->uart_error_count++;
-      Error_Handler();
+      LOG("Encoder reset timeout: uart=%s count=%lu\n",
+          encoder_uart_name(device->huart),
+          (unsigned long)device->uart_error_count);
+      return false;
     }
   }
 
   encoder_rx_enable(device);
+  return true;
 }
 
-void encoder_device_request_data(EncoderDevice *device, uint8_t cmd)
+bool encoder_device_request_data(EncoderDevice *device, uint8_t cmd)
 {
   uint32_t start_tick;
 
   if (device == NULL || device->huart == NULL) {
-    return;
+    return false;
   }
 
   if (cmd != ENCODER_CMD_POSITION && cmd != ENCODER_CMD_TURNS) {
-    return;
+    return false;
   }
 
   device->last_cmd = cmd;
@@ -215,28 +259,44 @@ void encoder_device_request_data(EncoderDevice *device, uint8_t cmd)
   __HAL_UART_CLEAR_OREFLAG(device->huart);
   (void)device->huart->Instance->DR;
 
+  device->huart->RxState = HAL_UART_STATE_READY;
+  if (HAL_UART_Receive_DMA(device->huart, device->rx_buf, ENCODER_BUFFER_SIZE) != HAL_OK) {
+    device->uart_error_count++;
+    LOG("Encoder rx dma start error: uart=%s cmd=0x%02X err=0x%08lX count=%lu\n",
+        encoder_uart_name(device->huart),
+        cmd,
+        (unsigned long)device->huart->ErrorCode,
+        (unsigned long)device->uart_error_count);
+    return false;
+  }
+
   encoder_tx_enable(device);
   if (HAL_UART_Transmit(device->huart, &cmd, 1U, 2U) != HAL_OK) {
+    HAL_UART_DMAStop(device->huart);
     device->uart_error_count++;
-    Error_Handler();
+    LOG("Encoder request tx error: uart=%s cmd=0x%02X err=0x%08lX count=%lu\n",
+        encoder_uart_name(device->huart),
+        cmd,
+        (unsigned long)device->huart->ErrorCode,
+        (unsigned long)device->uart_error_count);
+    return false;
   }
 
   start_tick = HAL_GetTick();
   while ((device->huart->Instance->SR & UART_FLAG_TC) == 0U) {
     if ((HAL_GetTick() - start_tick) >= ENCODER_UART_TX_TIMEOUT_MS) {
+      HAL_UART_DMAStop(device->huart);
       device->uart_error_count++;
-      Error_Handler();
+      LOG("Encoder request timeout: uart=%s cmd=0x%02X count=%lu\n",
+          encoder_uart_name(device->huart),
+          cmd,
+          (unsigned long)device->uart_error_count);
+      return false;
     }
   }
 
   encoder_rx_enable(device);
-  __HAL_UART_CLEAR_OREFLAG(device->huart);
-
-  device->huart->RxState = HAL_UART_STATE_READY;
-  if (HAL_UART_Receive_DMA(device->huart, device->rx_buf, ENCODER_BUFFER_SIZE) != HAL_OK) {
-    device->uart_error_count++;
-    Error_Handler();
-  }
+  return true;
 }
 
 bool encoder_device_get_position(EncoderDevice *device, uint16_t *position)
@@ -303,14 +363,14 @@ void encoder_init(UART_HandleTypeDef *huart)
                             ENCODER_DEFAULT_DE_PIN);
 }
 
-void encoder_reset(void)
+bool encoder_reset(void)
 {
-  encoder_device_reset(&default_encoder_device);
+  return encoder_device_reset(&default_encoder_device);
 }
 
-void encoder_request_data(uint8_t cmd)
+bool encoder_request_data(uint8_t cmd)
 {
-  encoder_device_request_data(&default_encoder_device, cmd);
+  return encoder_device_request_data(&default_encoder_device, cmd);
 }
 
 bool encoder_get_position(uint16_t *position)
@@ -352,7 +412,12 @@ void encoder_rx_complete_callback(UART_HandleTypeDef *huart)
       device->is_data_ready = true;
     } else {
       device->checksum_error_count++;
-      Error_Handler();
+      LOG("Encoder checksum error: uart=%s cmd=0x%02X data=%02X %02X count=%lu\n",
+          encoder_uart_name(device->huart),
+          device->last_cmd,
+          device->rx_buf[0],
+          device->rx_buf[1],
+          (unsigned long)device->checksum_error_count);
     }
   } else if (device->last_cmd == ENCODER_CMD_TURNS) {
     int16_t turns = 0;
@@ -362,7 +427,12 @@ void encoder_rx_complete_callback(UART_HandleTypeDef *huart)
       device->is_data_ready = true;
     } else {
       device->checksum_error_count++;
-      Error_Handler();
+      LOG("Encoder checksum error: uart=%s cmd=0x%02X data=%02X %02X count=%lu\n",
+          encoder_uart_name(device->huart),
+          device->last_cmd,
+          device->rx_buf[0],
+          device->rx_buf[1],
+          (unsigned long)device->checksum_error_count);
     }
   }
 }
@@ -377,6 +447,54 @@ void encoder_error_callback(UART_HandleTypeDef *huart)
   }
 
   device->uart_error_count++;
+  HAL_UART_DMAStop(huart);
+  __HAL_UART_CLEAR_FEFLAG(huart);
+  __HAL_UART_CLEAR_NEFLAG(huart);
+  __HAL_UART_CLEAR_OREFLAG(huart);
+  (void)huart->Instance->DR;
+  huart->RxState = HAL_UART_STATE_READY;
+  device->is_data_ready = false;
+  LOG("Encoder uart error: uart=%s code=0x%08lX count=%lu\n",
+      encoder_uart_name(huart),
+      (unsigned long)huart->ErrorCode,
+      (unsigned long)device->uart_error_count);
   (void)huart;
-  Error_Handler();
+}
+
+void encoder_device_log_timeout_state(const EncoderDevice *device, const char *context)
+{
+#if DEBUG_LOG_ENABLED
+  const char *label = context;
+  uint32_t sr;
+  uint32_t cr1;
+  uint32_t cr3;
+  uint32_t dma_remaining;
+
+  if (device == NULL || device->huart == NULL || device->huart->Instance == NULL) {
+    return;
+  }
+
+  if (label == NULL) {
+    label = "Encoder timeout";
+  }
+
+  sr = device->huart->Instance->SR;
+  cr1 = device->huart->Instance->CR1;
+  cr3 = device->huart->Instance->CR3;
+  dma_remaining = encoder_dma_remaining(device->huart);
+  LOG("%s: uart=%s cmd=0x%02X sr=0x%08lX cr1=0x%08lX cr3=0x%08lX rx_state=%lu dma_remaining=%lu rx_buf=%02X %02X\n",
+      label,
+      encoder_uart_name(device->huart),
+      device->last_cmd,
+      (unsigned long)sr,
+      (unsigned long)cr1,
+      (unsigned long)cr3,
+      (unsigned long)device->huart->RxState,
+      (unsigned long)dma_remaining,
+      device->rx_buf[0],
+      device->rx_buf[1]);
+#else
+  (void)device;
+  (void)context;
+#endif
 }

@@ -73,7 +73,6 @@ static bool base_can_scheduler_send(BaseCanChannel channel)
     }
 
     base_can_scheduler_try_recover();
-    Error_Handler();
     return false;
   }
 
@@ -125,14 +124,17 @@ void base_can_scheduler_init(CAN_HandleTypeDef *can_handle)
     if (HAL_CAN_Start(base_can_scheduler_handle) != HAL_OK) {
       LOG("CAN start error: 0x%08lX\n",
           (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
-      Error_Handler();
+      base_can_scheduler_handle = NULL;
+      return;
     }
 
     if (HAL_CAN_ActivateNotification(base_can_scheduler_handle,
                                      BASE_CAN_ERROR_NOTIFICATION_MASK) != HAL_OK) {
       LOG("CAN notification error: 0x%08lX\n",
           (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
-      Error_Handler();
+      (void)HAL_CAN_Stop(base_can_scheduler_handle);
+      base_can_scheduler_handle = NULL;
+      return;
     }
   }
 }
@@ -198,4 +200,21 @@ void base_can_scheduler_process(void)
   if (base_can_scheduler_send(selected_channel)) {
     base_can_next_channel = base_can_scheduler_other_channel(selected_channel);
   }
+}
+
+void base_can_scheduler_handle_error(CAN_HandleTypeDef *can_handle)
+{
+  uint32_t error_code;
+
+  if (base_can_scheduler_handle == NULL || can_handle == NULL) {
+    return;
+  }
+
+  error_code = HAL_CAN_GetError(can_handle);
+  LOG("CAN async error: err=0x%08lX\n", (unsigned long)error_code);
+  if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
+    base_can_bus_off_until_tick = HAL_GetTick() + BASE_CAN_BUS_OFF_COOLDOWN_MS;
+  }
+
+  base_can_scheduler_try_recover();
 }

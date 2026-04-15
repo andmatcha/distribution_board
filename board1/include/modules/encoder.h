@@ -50,7 +50,7 @@ bool encoder_device_init(EncoderDevice *device,
  * @note This function sends 0x56 and 0x75 consecutively
  * @retval None
  */
-void encoder_device_reset(EncoderDevice *device);
+bool encoder_device_reset(EncoderDevice *device);
 
 /**
  * @brief Request data from a specific encoder
@@ -58,7 +58,7 @@ void encoder_device_reset(EncoderDevice *device);
  * @param cmd Command byte (ENCODER_CMD_POSITION or ENCODER_CMD_TURNS)
  * @retval None
  */
-void encoder_device_request_data(EncoderDevice *device, uint8_t cmd);
+bool encoder_device_request_data(EncoderDevice *device, uint8_t cmd);
 
 /**
  * @brief Get latest position from a specific encoder
@@ -91,6 +91,14 @@ uint32_t encoder_device_get_checksum_error_count(const EncoderDevice *device);
 uint32_t encoder_device_get_uart_error_count(const EncoderDevice *device);
 
 /**
+ * @brief Log low-level UART/DMA state for timeout diagnosis
+ * @param device Encoder device
+ * @param context Short log context
+ * @retval None
+ */
+void encoder_device_log_timeout_state(const EncoderDevice *device, const char *context);
+
+/**
  * @brief Initialize the default encoder module
  * @details Uses the original Base Horizon wiring on USART1 + PA8.
  * @param huart Pointer to UART handle for encoder communication
@@ -103,7 +111,7 @@ void encoder_init(UART_HandleTypeDef *huart);
  * @note This function sends 0x56 and 0x75 consecutively
  * @retval None
  */
-void encoder_reset(void);
+bool encoder_reset(void);
 
 /**
  * @brief Request encoder data
@@ -111,7 +119,7 @@ void encoder_reset(void);
  * @note This function sends command to encoder and switches to RX mode
  * @retval None
  */
-void encoder_request_data(uint8_t cmd);
+bool encoder_request_data(uint8_t cmd);
 
 /**
  * @brief Get latest encoder position data
