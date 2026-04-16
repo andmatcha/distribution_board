@@ -14,7 +14,7 @@
 #define ENCODER_DEFAULT_DE_PIN GPIO_PIN_8
 #define ENCODER_DEFAULT_DE_PORT GPIOA
 #define ENCODER_UART_TX_TIMEOUT_MS 10U
-#define ENCODER_RESPONSE_TIMEOUT_MS 10U
+#define ENCODER_RESPONSE_TIMEOUT_MS 15U
 
 static EncoderDevice default_encoder_device;
 static EncoderDevice *encoder_devices[ENCODER_MAX_DEVICES];
@@ -178,7 +178,9 @@ static bool encoder_submit_request(EncoderDevice *device, uint8_t cmd)
     return false;
   }
 
-  encoder_cancel_io(device);
+  if (device->response_pending || device->huart->RxState != HAL_UART_STATE_READY) {
+    encoder_cancel_io(device);
+  }
   device->pending_cmd = cmd;
 
   encoder_tx_enable(device);
@@ -207,8 +209,13 @@ static bool encoder_submit_request(EncoderDevice *device, uint8_t cmd)
   }
 
   encoder_rx_enable(device);
-  device->huart->RxState = HAL_UART_STATE_READY;
   if (HAL_UART_Receive_DMA(device->huart, device->rx_buf, ENCODER_BUFFER_SIZE) != HAL_OK) {
+    encoder_cancel_io(device);
+    if (HAL_UART_Receive_DMA(device->huart, device->rx_buf, ENCODER_BUFFER_SIZE) == HAL_OK) {
+      device->request_tick = HAL_GetTick();
+      device->response_pending = true;
+      return true;
+    }
     device->uart_error_count++;
     LOG("Encoder rx dma start error: uart=%s cmd=0x%02X err=0x%08lX count=%lu\n",
         encoder_uart_name(device->huart),
