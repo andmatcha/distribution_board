@@ -22,7 +22,6 @@ void poll(void)
   base_horizon_process();
   base_roll_process();
   base_can_scheduler_process();
-  HAL_Delay(1);
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)

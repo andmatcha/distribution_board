@@ -17,6 +17,13 @@
 #define ENCODER_CMD_RESET_1 0x56
 #define ENCODER_CMD_RESET_2 0x75
 
+typedef enum
+{
+  ENCODER_POLL_MODE_NONE = 0,
+  ENCODER_POLL_MODE_POSITION,
+  ENCODER_POLL_MODE_POSITION_TURNS
+} EncoderPollMode;
+
 typedef struct
 {
   UART_HandleTypeDef *huart;
@@ -25,8 +32,15 @@ typedef struct
   uint8_t rx_buf[2];
   uint16_t position;
   int16_t turns;
-  uint8_t last_cmd;
-  volatile bool is_data_ready;
+  uint16_t sample_position;
+  int16_t sample_turns;
+  uint32_t request_tick;
+  uint8_t pending_cmd;
+  EncoderPollMode poll_mode;
+  volatile bool position_ready;
+  volatile bool turns_ready;
+  volatile bool sample_ready;
+  volatile bool response_pending;
   volatile uint32_t uart_error_count;
   volatile uint32_t checksum_error_count;
 } EncoderDevice;
@@ -48,17 +62,39 @@ bool encoder_device_init(EncoderDevice *device,
  * @brief Reset a specific encoder position/turns
  * @param device Encoder device
  * @note This function sends 0x56 and 0x75 consecutively
- * @retval None
+ * @retval true if reset command completed successfully, false otherwise
  */
 bool encoder_device_reset(EncoderDevice *device);
 
 /**
- * @brief Request data from a specific encoder
+ * @brief Request a single response from a specific encoder
  * @param device Encoder device
  * @param cmd Command byte (ENCODER_CMD_POSITION or ENCODER_CMD_TURNS)
- * @retval None
+ * @retval true if the request was sent successfully, false otherwise
  */
 bool encoder_device_request_data(EncoderDevice *device, uint8_t cmd);
+
+/**
+ * @brief Start continuous polling for a specific encoder
+ * @param device Encoder device
+ * @param mode Polling mode
+ * @retval true if polling started successfully, false otherwise
+ */
+bool encoder_device_start_polling(EncoderDevice *device, EncoderPollMode mode);
+
+/**
+ * @brief Stop continuous polling for a specific encoder
+ * @param device Encoder device
+ * @retval None
+ */
+void encoder_device_stop_polling(EncoderDevice *device);
+
+/**
+ * @brief Supervise timeouts and recover polling when needed
+ * @param device Encoder device
+ * @retval None
+ */
+void encoder_device_process(EncoderDevice *device);
 
 /**
  * @brief Get latest position from a specific encoder
@@ -75,6 +111,15 @@ bool encoder_device_get_position(EncoderDevice *device, uint16_t *position);
  * @retval true if new data is available, false otherwise
  */
 bool encoder_device_get_turns(EncoderDevice *device, int16_t *turns);
+
+/**
+ * @brief Get the latest matched position/turns pair from a specific encoder
+ * @param device Encoder device
+ * @param position Pointer to store the 14-bit position value
+ * @param turns Pointer to store the 14-bit signed turns value
+ * @retval true if a new matched pair is available, false otherwise
+ */
+bool encoder_device_get_sample(EncoderDevice *device, uint16_t *position, int16_t *turns);
 
 /**
  * @brief Get checksum error count for a specific encoder
@@ -109,15 +154,14 @@ void encoder_init(UART_HandleTypeDef *huart);
 /**
  * @brief Reset encoder position/turns
  * @note This function sends 0x56 and 0x75 consecutively
- * @retval None
+ * @retval true if reset command completed successfully, false otherwise
  */
 bool encoder_reset(void);
 
 /**
- * @brief Request encoder data
+ * @brief Request encoder data once
  * @param cmd Command byte (ENCODER_CMD_POSITION or ENCODER_CMD_TURNS)
- * @note This function sends command to encoder and switches to RX mode
- * @retval None
+ * @retval true if the request was sent successfully, false otherwise
  */
 bool encoder_request_data(uint8_t cmd);
 

@@ -36,21 +36,9 @@ typedef struct
   uint32_t next_origin_retry_tick;
 } BaseHorizonState;
 
-typedef enum
-{
-  BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION = 0,
-  BASE_HORIZON_ENCODER_PHASE_WAIT_POSITION,
-  BASE_HORIZON_ENCODER_PHASE_REQUEST_TURNS,
-  BASE_HORIZON_ENCODER_PHASE_WAIT_TURNS
-} BaseHorizonEncoderPhase;
-
 static UART_HandleTypeDef *base_horizon_encoder_uart = NULL;
 static EncoderDevice base_horizon_encoder_device;
 static BaseHorizonState base_horizon_state = {0};
-static BaseHorizonEncoderPhase base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-static uint32_t base_horizon_encoder_phase_start_tick = 0U;
-static uint16_t base_horizon_pending_pos = 0U;
-static int16_t base_horizon_pending_turns = 0;
 
 #define BASE_HORIZON_ENCODER_DE_PORT GPIOA
 #define BASE_HORIZON_ENCODER_DE_PIN GPIO_PIN_8
@@ -155,13 +143,10 @@ static bool base_horizon_capture_origin_position(void)
   }
 
   start_tick = HAL_GetTick();
-
   while ((HAL_GetTick() - start_tick) < BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
     if (encoder_device_get_position(&base_horizon_encoder_device, &origin_position)) {
       base_horizon_state.origin_position = (uint16_t)(origin_position & 0x3FFFU);
       base_horizon_state.has_origin_position = true;
-      base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-      base_horizon_encoder_phase_start_tick = 0U;
       base_horizon_state.next_origin_retry_tick = 0U;
       LOG("Base Horizon origin captured: pos=%u\n", base_horizon_state.origin_position);
       return true;
@@ -186,6 +171,8 @@ static bool base_horizon_prepare_origin_reference(void)
     return false;
   }
 
+  encoder_device_stop_polling(&base_horizon_encoder_device);
+
   now_tick = HAL_GetTick();
   if (!encoder_device_reset(&base_horizon_encoder_device)) {
     if (base_horizon_should_log_error(now_tick)) {
@@ -199,6 +186,22 @@ static bool base_horizon_prepare_origin_reference(void)
 
   HAL_Delay(BASE_HORIZON_ENCODER_RESET_SETTLE_MS);
   if (!base_horizon_capture_origin_position()) {
+    base_horizon_state.next_origin_retry_tick = HAL_GetTick() + BASE_HORIZON_ORIGIN_RETRY_INTERVAL_MS;
+    return false;
+  }
+
+  base_horizon_state.is_first_reading = true;
+  base_horizon_state.has_last_total_counts = false;
+  base_horizon_state.has_pending_transition = false;
+  base_horizon_state.has_last_can_distance = false;
+
+  if (!encoder_device_start_polling(&base_horizon_encoder_device, ENCODER_POLL_MODE_POSITION_TURNS)) {
+    if (base_horizon_should_log_error(HAL_GetTick())) {
+      LOG("Base Horizon polling start failed: uart_err=%lu checksum_err=%lu\n",
+          (unsigned long)encoder_device_get_uart_error_count(&base_horizon_encoder_device),
+          (unsigned long)encoder_device_get_checksum_error_count(&base_horizon_encoder_device));
+    }
+    base_horizon_state.has_origin_position = false;
     base_horizon_state.next_origin_retry_tick = HAL_GetTick() + BASE_HORIZON_ORIGIN_RETRY_INTERVAL_MS;
     return false;
   }
@@ -251,85 +254,18 @@ static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, i
 
 static bool base_horizon_read_sample(BaseHorizonSample *sample)
 {
-  uint32_t now_tick;
-  uint8_t step_guard = 0U;
+  uint16_t pos = 0U;
+  int16_t turns = 0;
 
   if (sample == NULL) {
     return false;
   }
 
-  while (step_guard < 4U) {
-    now_tick = HAL_GetTick();
-    step_guard++;
-
-    switch (base_horizon_encoder_phase) {
-      case BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION:
-        if (!encoder_device_request_data(&base_horizon_encoder_device, ENCODER_CMD_POSITION)) {
-          if (base_horizon_should_log_error(now_tick)) {
-            LOG("Base Horizon position request failed: uart_err=%lu checksum_err=%lu\n",
-                (unsigned long)encoder_device_get_uart_error_count(&base_horizon_encoder_device),
-                (unsigned long)encoder_device_get_checksum_error_count(&base_horizon_encoder_device));
-          }
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-          return false;
-        }
-        base_horizon_encoder_phase_start_tick = now_tick;
-        base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_WAIT_POSITION;
-        break;
-
-      case BASE_HORIZON_ENCODER_PHASE_WAIT_POSITION:
-        if (encoder_device_get_position(&base_horizon_encoder_device, &base_horizon_pending_pos)) {
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_TURNS;
-          break;
-        }
-        if ((now_tick - base_horizon_encoder_phase_start_tick) >= BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
-          if (base_horizon_should_log_error(now_tick)) {
-            LOG("Base Horizon position timeout: uart_err=%lu checksum_err=%lu\n",
-                (unsigned long)encoder_device_get_uart_error_count(&base_horizon_encoder_device),
-                (unsigned long)encoder_device_get_checksum_error_count(&base_horizon_encoder_device));
-            encoder_device_log_timeout_state(&base_horizon_encoder_device, "Base Horizon position timeout detail");
-          }
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-        }
-        return false;
-
-      case BASE_HORIZON_ENCODER_PHASE_REQUEST_TURNS:
-        if (!encoder_device_request_data(&base_horizon_encoder_device, ENCODER_CMD_TURNS)) {
-          if (base_horizon_should_log_error(now_tick)) {
-            LOG("Base Horizon turns request failed: uart_err=%lu checksum_err=%lu\n",
-                (unsigned long)encoder_device_get_uart_error_count(&base_horizon_encoder_device),
-                (unsigned long)encoder_device_get_checksum_error_count(&base_horizon_encoder_device));
-          }
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-          return false;
-        }
-        base_horizon_encoder_phase_start_tick = now_tick;
-        base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_WAIT_TURNS;
-        break;
-
-      case BASE_HORIZON_ENCODER_PHASE_WAIT_TURNS:
-        if (encoder_device_get_turns(&base_horizon_encoder_device, &base_horizon_pending_turns)) {
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-          return base_horizon_build_sample(sample, base_horizon_pending_pos, base_horizon_pending_turns);
-        }
-        if ((now_tick - base_horizon_encoder_phase_start_tick) >= BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
-          if (base_horizon_should_log_error(now_tick)) {
-            LOG("Base Horizon turns timeout: uart_err=%lu checksum_err=%lu\n",
-                (unsigned long)encoder_device_get_uart_error_count(&base_horizon_encoder_device),
-                (unsigned long)encoder_device_get_checksum_error_count(&base_horizon_encoder_device));
-            encoder_device_log_timeout_state(&base_horizon_encoder_device, "Base Horizon turns timeout detail");
-          }
-          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-        }
-        return false;
-
-      default:
-        base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-        break;
-    }
+  if (!encoder_device_get_sample(&base_horizon_encoder_device, &pos, &turns)) {
+    return false;
   }
 
-  return false;
+  return base_horizon_build_sample(sample, pos, turns);
 }
 
 static bool base_horizon_validate_distance(int16_t distance_tenths_mm)
@@ -451,10 +387,6 @@ void base_horizon_init(UART_HandleTypeDef *encoder_uart)
   base_horizon_encoder_uart = encoder_uart;
   base_horizon_state = (BaseHorizonState){0};
   base_horizon_state.is_first_reading = true;
-  base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-  base_horizon_encoder_phase_start_tick = 0U;
-  base_horizon_pending_pos = 0U;
-  base_horizon_pending_turns = 0;
   base_horizon_state.runtime_ready = base_horizon_initialize_runtime();
   (void)base_horizon_prepare_origin_reference();
 }
@@ -467,6 +399,8 @@ void base_horizon_process(void)
   if (!base_horizon_state.runtime_ready) {
     return;
   }
+
+  encoder_device_process(&base_horizon_encoder_device);
 
   if (!base_horizon_state.has_origin_position) {
     now_tick = HAL_GetTick();
