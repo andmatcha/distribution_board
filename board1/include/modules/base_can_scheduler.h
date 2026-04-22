@@ -39,4 +39,11 @@ bool base_can_scheduler_stage(BaseCanChannel channel,
  */
 void base_can_scheduler_process(void);
 
+/**
+ * @brief Handle asynchronous CAN error notifications
+ * @param can_handle CAN handle that raised the error
+ * @retval None
+ */
+void base_can_scheduler_handle_error(CAN_HandleTypeDef *can_handle);
+
 #endif /* BASE_CAN_SCHEDULER_H */

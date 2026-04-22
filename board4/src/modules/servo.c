@@ -1,7 +1,7 @@
 /* Servo motor control implementation */
 #include "modules/servo.h"
+#include "debug_log.h"
 #include "main.h"
-#include <stdio.h>
 
 // サーボモーター用タイマーハンドル
 static TIM_HandleTypeDef *htim_servo = NULL;
@@ -33,16 +33,16 @@ void servo_set_angle(uint16_t angle);
 void servo_init(TIM_HandleTypeDef *htim) {
   htim_servo = htim;
 
-  printf("[SERVO_INIT] TIM Instance: 0x%08lX\n", (uint32_t)htim->Instance);
-  printf("[SERVO_INIT] TIM prescaler: %lu\n", htim->Instance->PSC);
-  printf("[SERVO_INIT] TIM ARR: %lu\n", htim->Instance->ARR);
-  printf("[SERVO_INIT] TIM CR1: 0x%04lX\n", htim->Instance->CR1);
+  LOG("[SERVO_INIT] TIM Instance: 0x%08lX\n", (uint32_t)htim->Instance);
+  LOG("[SERVO_INIT] TIM prescaler: %lu\n", htim->Instance->PSC);
+  LOG("[SERVO_INIT] TIM ARR: %lu\n", htim->Instance->ARR);
+  LOG("[SERVO_INIT] TIM CR1: 0x%04lX\n", htim->Instance->CR1);
 
   // TIM2 CH2 (PA1)をPWM出力として開始
   // HAL_TIM_PWM_Startはタイマーを自動的に有効化する
   HAL_StatusTypeDef status = HAL_TIM_PWM_Start(htim_servo, servo_channel);
-  printf("[SERVO_INIT] HAL_TIM_PWM_Start status: %d (0=OK)\n", status);
-  printf("[SERVO_INIT] TIM CR1 after PWM_Start: 0x%04lX (bit0 should be 1 for counter enable)\n", htim_servo->Instance->CR1);
+  LOG("[SERVO_INIT] HAL_TIM_PWM_Start status: %d (0=OK)\n", status);
+  LOG("[SERVO_INIT] TIM CR1 after PWM_Start: 0x%04lX (bit0 should be 1 for counter enable)\n", htim_servo->Instance->CR1);
   if (status != HAL_OK) {
     Error_Handler();
   }
@@ -72,15 +72,17 @@ void servo_set_angle(uint16_t angle) {
   // CH2のCCR値を設定
   __HAL_TIM_SET_COMPARE(htim_servo, servo_channel, ccr);
 
+#if DEBUG_LOG_ENABLED
   uint32_t pulse_width_us = ccr;
   uint32_t timer_enabled = (htim_servo->Instance->CR1 & TIM_CR1_CEN) ? 1U : 0U;
   uint32_t channel_enabled = (htim_servo->Instance->CCER & TIM_CCER_CC2E) ? 1U : 0U;
-  printf("[SERVO_PWM] TIM2_CH2 enabled=%lu channel=%lu angle=%u ccr=%lu pulse=%luus\n",
-         timer_enabled,
-         channel_enabled,
-         angle,
-         ccr,
-         pulse_width_us);
+#endif
+  LOG("[SERVO_PWM] TIM2_CH2 enabled=%lu channel=%lu angle=%u ccr=%lu pulse=%luus\n",
+      timer_enabled,
+      channel_enabled,
+      angle,
+      ccr,
+      pulse_width_us);
 }
 
 // サーボモーター制御 呼ばれるたびに角度を少しずつ変化させる

@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "app.h"
+#include "debug_log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,11 +60,56 @@ static void MX_CAN_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
+static void log_reset_flags(void);
+static void wait_for_log_flush(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void log_reset_flags(void)
+{
+  uint32_t flags = RCC->CSR;
+
+  LOG("Reset flags:");
+  if ((flags & RCC_CSR_PORRSTF) != 0U) {
+    LOG(" POR");
+  }
+  if ((flags & RCC_CSR_PINRSTF) != 0U) {
+    LOG(" PIN");
+  }
+  if ((flags & RCC_CSR_SFTRSTF) != 0U) {
+    LOG(" SFT");
+  }
+  if ((flags & RCC_CSR_IWDGRSTF) != 0U) {
+    LOG(" IWDG");
+  }
+  if ((flags & RCC_CSR_WWDGRSTF) != 0U) {
+    LOG(" WWDG");
+  }
+  if ((flags & RCC_CSR_LPWRRSTF) != 0U) {
+    LOG(" LPWR");
+  }
+  if ((flags & (RCC_CSR_PORRSTF |
+                RCC_CSR_PINRSTF |
+                RCC_CSR_SFTRSTF |
+                RCC_CSR_IWDGRSTF |
+                RCC_CSR_WWDGRSTF |
+                RCC_CSR_LPWRRSTF)) == 0U) {
+    LOG(" none");
+  }
+  LOG("\n");
+  __HAL_RCC_CLEAR_RESET_FLAGS();
+}
+
+static void wait_for_log_flush(void)
+{
+  volatile uint32_t cycles;
+
+  for (cycles = 0U; cycles < 720000U; cycles++) {
+    __NOP();
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -91,6 +137,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  log_reset_flags();
 
   /* USER CODE END SysInit */
 
@@ -324,6 +371,8 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+  LOG("Fatal Error_Handler invoked.\n");
+  wait_for_log_flush();
   __disable_irq();
   NVIC_SystemReset();
   while (1)
