@@ -25,7 +25,7 @@ static const uint32_t servo_channel = TIM_CHANNEL_2;
 #define ANGLE_MIN     0     // 最小角度 (度)
 #define ANGLE_MAX     270   // 最大角度 (度)
 
-uint16_t current_angle = 0; // 初期角度
+uint16_t current_angle = 270; // 初期角度
 
 void servo_set_angle(uint16_t angle);
 
@@ -81,7 +81,7 @@ void servo_set_angle(uint16_t angle) {
 
 // サーボモーター制御 呼ばれるたびに角度を少しずつ変化させる
 void servo_control(ServoDirection direction, ServoMode mode) {
-  uint16_t angle_step = (mode == SERVO_MODE_FAST) ? 10 : 4; // 高速モード : 通常モード
+  uint16_t angle_step = (mode == SERVO_MODE_FAST) ? 4 : 1; // 高速モード : 通常モード
 
   if (direction == SERVO_DIR_OPEN) {
     current_angle = current_angle + angle_step;
