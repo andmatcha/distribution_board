@@ -113,9 +113,3 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     encoder_request_pending = true;
   }
 }
-
-void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan_handle)
-{
-  (void)hcan_handle;
-  Error_Handler();
-}

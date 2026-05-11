@@ -109,7 +109,7 @@ static void base_horizon_initialize_runtime(void)
                            base_horizon_encoder_uart,
                            BASE_HORIZON_ENCODER_DE_PORT,
                            BASE_HORIZON_ENCODER_DE_PIN)) {
-    Error_Handler();
+    return;
   }
 
   encoder_device_reset(&base_horizon_encoder_device);
@@ -139,10 +139,6 @@ static void base_horizon_capture_origin_position(void)
       base_horizon_state.has_origin_position = true;
       break;
     }
-  }
-
-  if (!base_horizon_state.has_origin_position) {
-    Error_Handler();
   }
 
   base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
@@ -188,7 +184,7 @@ static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, i
   sample->pos = shifted_pos;
   sample->turns = turns;
   sample->total_counts = total_counts;
-  sample->distance_tenths_mm = (int16_t)roundf((float)total_counts * -50.0f / 16384.0f);
+  sample->distance_tenths_mm = (int16_t)roundf((float)total_counts * 50.0f / 16384.0f);
   return true;
 }
 
@@ -241,7 +237,8 @@ static bool base_horizon_read_sample(BaseHorizonSample *sample)
           break;
         }
         if ((now_tick - base_horizon_encoder_phase_start_tick) >= BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
-          Error_Handler();
+          base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
+          break;
         }
         return false;
 

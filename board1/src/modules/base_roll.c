@@ -52,7 +52,7 @@ static void base_roll_initialize_runtime(void)
                            base_roll_encoder_uart,
                            BASE_ROLL_ENCODER_DE_PORT,
                            BASE_ROLL_ENCODER_DE_PIN)) {
-    Error_Handler();
+    return;
   }
 
   printf("Base Roll initialization complete.\n");
@@ -84,7 +84,8 @@ static bool base_roll_read_position(uint16_t *position)
           return true;
         }
         if ((now_tick - base_roll_encoder_phase_start_tick) >= BASE_ROLL_ENCODER_RESPONSE_TIMEOUT_MS) {
-          Error_Handler();
+          base_roll_encoder_phase = BASE_ROLL_ENCODER_PHASE_REQUEST_POSITION;
+          break;
         }
         return false;
 

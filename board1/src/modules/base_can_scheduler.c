@@ -1,5 +1,4 @@
 #include "modules/base_can_scheduler.h"
-#include <stdio.h>
 
 typedef struct
 {
@@ -14,17 +13,11 @@ static BaseCanChannel base_can_next_channel = BASE_CAN_CHANNEL_HORIZON;
 static uint32_t base_can_bus_off_until_tick = 0U;
 
 #define BASE_CAN_BUS_OFF_COOLDOWN_MS 1000U
-#define BASE_CAN_ERROR_NOTIFICATION_MASK \
-  (CAN_IT_ERROR | CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE)
 
 static bool base_can_scheduler_start(void);
 static void base_can_scheduler_try_recover(void);
 static BaseCanChannel base_can_scheduler_other_channel(BaseCanChannel channel);
 static bool base_can_scheduler_send(BaseCanChannel channel);
-static void base_can_scheduler_log_tx(BaseCanChannel channel,
-                                      const CAN_TxHeaderTypeDef *header,
-                                      const uint8_t *data,
-                                      uint32_t tx_mailbox);
 
 static bool base_can_scheduler_start(void)
 {
@@ -92,49 +85,16 @@ static bool base_can_scheduler_send(BaseCanChannel channel)
                                 &tx_mailbox);
   if (status != HAL_OK) {
     error_code = HAL_CAN_GetError(base_can_scheduler_handle);
-    printf("CAN send error: ch=%lu id=0x%03lX err=0x%08lX\n",
-           (unsigned long)channel,
-           (unsigned long)base_can_slots[channel].header.StdId,
-           (unsigned long)error_code);
     if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
       base_can_bus_off_until_tick = HAL_GetTick() + BASE_CAN_BUS_OFF_COOLDOWN_MS;
     }
 
     base_can_scheduler_try_recover();
-    Error_Handler();
     return false;
   }
 
   base_can_slots[channel].pending = false;
-  base_can_scheduler_log_tx(channel,
-                            &base_can_slots[channel].header,
-                            base_can_slots[channel].data,
-                            tx_mailbox);
   return true;
-}
-
-static void base_can_scheduler_log_tx(BaseCanChannel channel,
-                                      const CAN_TxHeaderTypeDef *header,
-                                      const uint8_t *data,
-                                      uint32_t tx_mailbox)
-{
-  uint32_t index;
-
-  if ((header == NULL) || (data == NULL)) {
-    return;
-  }
-
-  printf("CAN send ok: ch=%lu id=0x%03lX dlc=%lu data=",
-         (unsigned long)channel,
-         (unsigned long)header->StdId,
-         (unsigned long)header->DLC);
-  for (index = 0U; index < header->DLC; index++) {
-    printf("%02X", data[index]);
-    if ((index + 1U) < header->DLC) {
-      printf(" ");
-    }
-  }
-  printf(" mailbox=%lu\n", (unsigned long)tx_mailbox);
 }
 
 void base_can_scheduler_init(CAN_HandleTypeDef *can_handle)

@@ -79,8 +79,6 @@ void encoder_init(UART_HandleTypeDef *huart)
 
   encoder_huart = huart;
   encoder_data_ready = false;
-  encoder_response_pending = false;
-  encoder_request_tick = 0U;
   encoder_position = 0;
   encoder_uart_error_count = 0;
   encoder_checksum_error_count = 0;

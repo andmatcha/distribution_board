@@ -111,7 +111,8 @@ LoopFillZerobss:
 */
     .section .text.Default_Handler,"ax",%progbits
 Default_Handler:
-  b Error_Handler
+Infinite_Loop:
+  b Infinite_Loop
   .size Default_Handler, .-Default_Handler
 /******************************************************************************
 *
@@ -359,4 +360,5 @@ g_pfnVectors:
 
   .weak USBWakeUp_IRQHandler
   .thumb_set USBWakeUp_IRQHandler,Default_Handler
+
 
