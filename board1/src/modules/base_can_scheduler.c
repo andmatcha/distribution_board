@@ -17,6 +17,7 @@ static uint32_t base_can_bus_off_until_tick = 0U;
 #define BASE_CAN_ERROR_NOTIFICATION_MASK \
   (CAN_IT_ERROR | CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE)
 
+static bool base_can_scheduler_start(void);
 static void base_can_scheduler_try_recover(void);
 static BaseCanChannel base_can_scheduler_other_channel(BaseCanChannel channel);
 static bool base_can_scheduler_send(BaseCanChannel channel);
@@ -25,21 +26,49 @@ static void base_can_scheduler_log_tx(BaseCanChannel channel,
                                       const uint8_t *data,
                                       uint32_t tx_mailbox);
 
-static void base_can_scheduler_try_recover(void)
+static bool base_can_scheduler_start(void)
 {
   HAL_CAN_StateTypeDef state;
+
+  if (base_can_scheduler_handle == NULL) {
+    return false;
+  }
+
+  state = HAL_CAN_GetState(base_can_scheduler_handle);
+  if (state == HAL_CAN_STATE_LISTENING) {
+    return true;
+  }
+
+  if (state == HAL_CAN_STATE_RESET || state == HAL_CAN_STATE_ERROR) {
+    (void)HAL_CAN_Init(base_can_scheduler_handle);
+  }
+
+  if (HAL_CAN_GetState(base_can_scheduler_handle) == HAL_CAN_STATE_READY) {
+    if (HAL_CAN_Start(base_can_scheduler_handle) == HAL_OK) {
+      return true;
+    }
+  }
+
+  return (HAL_CAN_GetState(base_can_scheduler_handle) == HAL_CAN_STATE_LISTENING);
+}
+
+static void base_can_scheduler_try_recover(void)
+{
+  uint32_t error_code;
 
   if (base_can_scheduler_handle == NULL) {
     return;
   }
 
-  state = HAL_CAN_GetState(base_can_scheduler_handle);
-  if (state == HAL_CAN_STATE_ERROR || state == HAL_CAN_STATE_READY) {
-    if (HAL_CAN_Stop(base_can_scheduler_handle) == HAL_OK) {
-      (void)HAL_CAN_ResetError(base_can_scheduler_handle);
-      (void)HAL_CAN_Start(base_can_scheduler_handle);
-    }
+  error_code = HAL_CAN_GetError(base_can_scheduler_handle);
+  if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
+    base_can_bus_off_until_tick = HAL_GetTick() + BASE_CAN_BUS_OFF_COOLDOWN_MS;
   }
+
+  (void)HAL_CAN_Stop(base_can_scheduler_handle);
+  (void)HAL_CAN_Init(base_can_scheduler_handle);
+  (void)HAL_CAN_ResetError(base_can_scheduler_handle);
+  (void)base_can_scheduler_start();
 }
 
 static BaseCanChannel base_can_scheduler_other_channel(BaseCanChannel channel)
@@ -120,19 +149,8 @@ void base_can_scheduler_init(CAN_HandleTypeDef *can_handle)
     base_can_slots[channel_index].pending = false;
   }
 
-  if (base_can_scheduler_handle != NULL) {
-    if (HAL_CAN_Start(base_can_scheduler_handle) != HAL_OK) {
-      printf("CAN start error: 0x%08lX\n",
-             (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
-      Error_Handler();
-    }
-
-    if (HAL_CAN_ActivateNotification(base_can_scheduler_handle,
-                                     BASE_CAN_ERROR_NOTIFICATION_MASK) != HAL_OK) {
-      printf("CAN notification error: 0x%08lX\n",
-             (unsigned long)HAL_CAN_GetError(base_can_scheduler_handle));
-      Error_Handler();
-    }
+  if (base_can_scheduler_handle != NULL && !base_can_scheduler_start()) {
+    base_can_scheduler_try_recover();
   }
 }
 
@@ -177,6 +195,15 @@ void base_can_scheduler_process(void)
 
   now_tick = HAL_GetTick();
   if ((int32_t)(now_tick - base_can_bus_off_until_tick) < 0) {
+    return;
+  }
+
+  if (!base_can_scheduler_start()) {
+    return;
+  }
+
+  if ((HAL_CAN_GetError(base_can_scheduler_handle) & HAL_CAN_ERROR_BOF) != 0U) {
+    base_can_scheduler_try_recover();
     return;
   }
 

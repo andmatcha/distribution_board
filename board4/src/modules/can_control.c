@@ -8,38 +8,30 @@
 
 #define DC_SPEED 100  // DCモーター速度 (%)
 #define CAN_TX_QUEUE_SIZE 8U
-#define CAN_ERROR_NOTIFICATION_MASK \
-  (CAN_IT_ERROR | CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE | CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE)
+#define CAN_BUS_OFF_COOLDOWN_MS 1000U
 
 static CAN_HandleTypeDef *hcan_ctrl = NULL;
 static TIM_HandleTypeDef *htim_ctrl = NULL;
 static volatile uint16_t encoder_tx_queue[CAN_TX_QUEUE_SIZE];
 static volatile uint8_t encoder_tx_head = 0;
 static volatile uint8_t encoder_tx_tail = 0;
+static uint32_t can_bus_off_until_tick = 0U;
 
+static bool can_control_start(void);
+static void can_control_handle_error(void);
 static void can_filter_config(void);
-static bool can_tx_queue_pop(uint16_t *position);
+static bool can_tx_queue_peek(uint16_t *position);
+static void can_tx_queue_drop(void);
 
 // CAN受信初期化
 void can_control_init(CAN_HandleTypeDef *hcan, TIM_HandleTypeDef *htim) {
   hcan_ctrl = hcan;
   htim_ctrl = htim;
+  encoder_tx_head = 0U;
+  encoder_tx_tail = 0U;
+  can_bus_off_until_tick = 0U;
 
-  // CANフィルター設定
-  can_filter_config();
-
-  // CAN受信割り込み開始
-  if ((hcan_ctrl != NULL) && (HAL_CAN_Start(hcan_ctrl) != HAL_OK)) {
-    printf("CAN start error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
-    Error_Handler();
-  }
-  if ((hcan_ctrl != NULL) &&
-      (HAL_CAN_ActivateNotification(hcan_ctrl,
-                                    CAN_IT_RX_FIFO0_MSG_PENDING | CAN_ERROR_NOTIFICATION_MASK) != HAL_OK)) {
-    printf("CAN notification error: 0x%08lX\n",
-           (unsigned long)HAL_CAN_GetError(hcan_ctrl));
-    Error_Handler();
-  }
+  (void)can_control_start();
 }
 
 bool can_control_enqueue_encoder_position(uint16_t position) {
@@ -57,8 +49,25 @@ bool can_control_enqueue_encoder_position(uint16_t position) {
 void can_control_process_tx(void) {
   CAN_TxHeaderTypeDef tx_header = {0};
   uint16_t position;
+  uint32_t error_code;
+  uint32_t now_tick;
 
   if (hcan_ctrl == NULL) {
+    return;
+  }
+
+  now_tick = HAL_GetTick();
+  if ((int32_t)(now_tick - can_bus_off_until_tick) < 0) {
+    return;
+  }
+
+  if (!can_control_start()) {
+    return;
+  }
+
+  error_code = HAL_CAN_GetError(hcan_ctrl);
+  if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
+    can_control_handle_error();
     return;
   }
 
@@ -69,7 +78,7 @@ void can_control_process_tx(void) {
   tx_header.DLC = 2;
   tx_header.TransmitGlobalTime = DISABLE;
 
-  while ((HAL_CAN_GetTxMailboxesFreeLevel(hcan_ctrl) > 0U) && can_tx_queue_pop(&position)) {
+  while ((HAL_CAN_GetTxMailboxesFreeLevel(hcan_ctrl) > 0U) && can_tx_queue_peek(&position)) {
     uint8_t tx_data[2];
     uint32_t tx_mailbox;
 
@@ -77,17 +86,11 @@ void can_control_process_tx(void) {
     tx_data[1] = (uint8_t)(position & 0xFFU);
 
     if (HAL_CAN_AddTxMessage(hcan_ctrl, &tx_header, tx_data, &tx_mailbox) != HAL_OK) {
-      printf("CAN send error: id=0x%03lX err=0x%08lX\n",
-             (unsigned long)tx_header.StdId,
-             (unsigned long)HAL_CAN_GetError(hcan_ctrl));
-      Error_Handler();
+      can_control_handle_error();
+      break;
     }
 
-    printf("CAN send ok: id=0x%03lX data=%02X %02X mailbox=%lu\n",
-           (unsigned long)tx_header.StdId,
-           tx_data[0],
-           tx_data[1],
-           (unsigned long)tx_mailbox);
+    can_tx_queue_drop();
   }
 }
 
@@ -111,14 +114,67 @@ static void can_filter_config(void) {
   }
 }
 
-static bool can_tx_queue_pop(uint16_t *position) {
+static bool can_control_start(void) {
+  HAL_CAN_StateTypeDef state;
+
+  if (hcan_ctrl == NULL) {
+    return false;
+  }
+
+  state = HAL_CAN_GetState(hcan_ctrl);
+  if (state == HAL_CAN_STATE_LISTENING) {
+    (void)HAL_CAN_ActivateNotification(hcan_ctrl, CAN_IT_RX_FIFO0_MSG_PENDING);
+    return true;
+  }
+
+  if (state == HAL_CAN_STATE_RESET || state == HAL_CAN_STATE_ERROR) {
+    (void)HAL_CAN_Init(hcan_ctrl);
+  }
+
+  if (HAL_CAN_GetState(hcan_ctrl) == HAL_CAN_STATE_READY) {
+    can_filter_config();
+    if (HAL_CAN_Start(hcan_ctrl) == HAL_OK) {
+      (void)HAL_CAN_ActivateNotification(hcan_ctrl, CAN_IT_RX_FIFO0_MSG_PENDING);
+      return true;
+    }
+  }
+
+  return (HAL_CAN_GetState(hcan_ctrl) == HAL_CAN_STATE_LISTENING);
+}
+
+static void can_control_handle_error(void) {
+  uint32_t error_code;
+
+  if (hcan_ctrl == NULL) {
+    return;
+  }
+
+  error_code = HAL_CAN_GetError(hcan_ctrl);
+  if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
+    can_bus_off_until_tick = HAL_GetTick() + CAN_BUS_OFF_COOLDOWN_MS;
+  }
+
+  (void)HAL_CAN_Stop(hcan_ctrl);
+  (void)HAL_CAN_Init(hcan_ctrl);
+  (void)HAL_CAN_ResetError(hcan_ctrl);
+  (void)can_control_start();
+}
+
+static bool can_tx_queue_peek(uint16_t *position) {
   if ((position == NULL) || (encoder_tx_tail == encoder_tx_head)) {
     return false;
   }
 
   *position = encoder_tx_queue[encoder_tx_tail];
-  encoder_tx_tail = (uint8_t)((encoder_tx_tail + 1U) % CAN_TX_QUEUE_SIZE);
   return true;
+}
+
+static void can_tx_queue_drop(void) {
+  if (encoder_tx_tail == encoder_tx_head) {
+    return;
+  }
+
+  encoder_tx_tail = (uint8_t)((encoder_tx_tail + 1U) % CAN_TX_QUEUE_SIZE);
 }
 
 // CAN受信コールバック

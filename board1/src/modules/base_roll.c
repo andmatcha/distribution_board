@@ -8,6 +8,8 @@
 
 typedef struct
 {
+  bool has_latest_position;
+  uint16_t latest_position;
   bool has_last_can_position;
   uint16_t last_can_position;
   uint32_t last_can_send_tick;
@@ -29,14 +31,15 @@ static uint32_t base_roll_encoder_phase_start_tick = 0U;
 #define BASE_ROLL_ENCODER_DE_PORT GPIOA
 #define BASE_ROLL_ENCODER_DE_PIN GPIO_PIN_4
 #define BASE_ROLL_CAN_STD_ID 0x301U
-#define BASE_ROLL_CAN_KEEPALIVE_INTERVAL_MS 200U
+#define BASE_ROLL_CAN_SEND_INTERVAL_MS 20U
 #define BASE_ROLL_LOG_INTERVAL_MS 100U
 #define BASE_ROLL_ENCODER_RESPONSE_TIMEOUT_MS 10U
 
 static void base_roll_initialize_runtime(void);
 static bool base_roll_read_position(uint16_t *position);
-static bool base_roll_should_send_can(uint16_t position, uint32_t now_tick);
+static bool base_roll_should_send_can(uint32_t now_tick);
 static bool base_roll_queue_position_can(uint16_t position);
+static void base_roll_publish_can_if_due(void);
 static void base_roll_publish_position(uint16_t position);
 
 static void base_roll_initialize_runtime(void)
@@ -94,17 +97,17 @@ static bool base_roll_read_position(uint16_t *position)
   return false;
 }
 
-static bool base_roll_should_send_can(uint16_t position, uint32_t now_tick)
+static bool base_roll_should_send_can(uint32_t now_tick)
 {
+  if (!base_roll_state.has_latest_position) {
+    return false;
+  }
+
   if (!base_roll_state.has_last_can_position) {
     return true;
   }
 
-  if (position != base_roll_state.last_can_position) {
-    return true;
-  }
-
-  if ((now_tick - base_roll_state.last_can_send_tick) >= BASE_ROLL_CAN_KEEPALIVE_INTERVAL_MS) {
+  if ((now_tick - base_roll_state.last_can_send_tick) >= BASE_ROLL_CAN_SEND_INTERVAL_MS) {
     return true;
   }
 
@@ -124,20 +127,27 @@ static bool base_roll_queue_position_can(uint16_t position)
                                   2U);
 }
 
-static void base_roll_publish_position(uint16_t position)
+static void base_roll_publish_can_if_due(void)
 {
   uint32_t now_tick;
 
   now_tick = HAL_GetTick();
-  if (base_roll_should_send_can(position, now_tick)) {
-    if (!base_roll_queue_position_can(position)) {
-      Error_Handler();
-    }
-
-    base_roll_state.last_can_position = position;
+  if (base_roll_should_send_can(now_tick) &&
+      base_roll_queue_position_can(base_roll_state.latest_position)) {
+    base_roll_state.last_can_position = base_roll_state.latest_position;
     base_roll_state.last_can_send_tick = now_tick;
     base_roll_state.has_last_can_position = true;
   }
+}
+
+static void base_roll_publish_position(uint16_t position)
+{
+  uint32_t now_tick;
+
+  base_roll_state.latest_position = position;
+  base_roll_state.has_latest_position = true;
+
+  now_tick = HAL_GetTick();
 
   if ((now_tick - base_roll_state.last_log_tick) >= BASE_ROLL_LOG_INTERVAL_MS) {
     base_roll_state.last_log_tick = now_tick;
@@ -161,4 +171,6 @@ void base_roll_process(void)
   if (base_roll_read_position(&position)) {
     base_roll_publish_position(position);
   }
+
+  base_roll_publish_can_if_due();
 }

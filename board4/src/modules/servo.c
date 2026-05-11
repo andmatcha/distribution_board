@@ -1,6 +1,5 @@
 /* Servo motor control implementation */
 #include "modules/servo.h"
-#include "main.h"
 #include <stdio.h>
 
 // サーボモーター用タイマーハンドル
@@ -26,7 +25,7 @@ static const uint32_t servo_channel = TIM_CHANNEL_2;
 #define ANGLE_MIN     0     // 最小角度 (度)
 #define ANGLE_MAX     270   // 最大角度 (度)
 
-uint16_t current_angle = 0; // 初期角度
+uint16_t current_angle = 270; // 初期角度
 
 void servo_set_angle(uint16_t angle);
 
@@ -43,9 +42,6 @@ void servo_init(TIM_HandleTypeDef *htim) {
   HAL_StatusTypeDef status = HAL_TIM_PWM_Start(htim_servo, servo_channel);
   printf("[SERVO_INIT] HAL_TIM_PWM_Start status: %d (0=OK)\n", status);
   printf("[SERVO_INIT] TIM CR1 after PWM_Start: 0x%04lX (bit0 should be 1 for counter enable)\n", htim_servo->Instance->CR1);
-  if (status != HAL_OK) {
-    Error_Handler();
-  }
 
   // 初期位置
   servo_set_angle(current_angle);
@@ -85,7 +81,7 @@ void servo_set_angle(uint16_t angle) {
 
 // サーボモーター制御 呼ばれるたびに角度を少しずつ変化させる
 void servo_control(ServoDirection direction, ServoMode mode) {
-  uint16_t angle_step = (mode == SERVO_MODE_FAST) ? 10 : 4; // 高速モード : 通常モード
+  uint16_t angle_step = (mode == SERVO_MODE_FAST) ? 4 : 1; // 高速モード : 通常モード
 
   if (direction == SERVO_DIR_OPEN) {
     current_angle = current_angle + angle_step;
