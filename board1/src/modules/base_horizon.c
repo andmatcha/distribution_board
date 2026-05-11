@@ -52,7 +52,7 @@ static int16_t base_horizon_pending_turns = 0;
 #define BASE_HORIZON_ENCODER_DE_PORT GPIOA
 #define BASE_HORIZON_ENCODER_DE_PIN GPIO_PIN_8
 #define BASE_HORIZON_CAN_STD_ID 0x300U
-#define BASE_HORIZON_CAN_KEEPALIVE_INTERVAL_MS 200U
+#define BASE_HORIZON_CAN_SEND_INTERVAL_MS 20U
 #define BASE_HORIZON_LOG_INTERVAL_MS 100U
 #define BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS 10U
 #define BASE_HORIZON_DIRECT_ACCEPT_TENTHS_MM 10
@@ -68,7 +68,8 @@ static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, i
 static bool base_horizon_build_position_only_sample(BaseHorizonSample *sample, uint16_t pos);
 static bool base_horizon_read_sample(BaseHorizonSample *sample);
 static bool base_horizon_validate_distance(int16_t distance_tenths_mm);
-static bool base_horizon_should_send_can(int16_t distance_tenths_mm, uint32_t now_tick);
+static bool base_horizon_should_send_can(uint32_t now_tick);
+static void base_horizon_publish_can_if_due(void);
 static void base_horizon_publish_sample(const BaseHorizonSample *sample);
 
 static int32_t base_horizon_unwrap_counts(uint16_t pos, int32_t last_total_counts)
@@ -314,21 +315,34 @@ static bool base_horizon_validate_distance(int16_t distance_tenths_mm)
   return false;
 }
 
-static bool base_horizon_should_send_can(int16_t distance_tenths_mm, uint32_t now_tick)
+static bool base_horizon_should_send_can(uint32_t now_tick)
 {
+  if (!base_horizon_state.has_last_total_counts) {
+    return false;
+  }
+
   if (!base_horizon_state.has_last_can_distance) {
     return true;
   }
 
-  if (distance_tenths_mm != base_horizon_state.last_can_distance_tenths_mm) {
-    return true;
-  }
-
-  if ((now_tick - base_horizon_state.last_can_send_tick) >= BASE_HORIZON_CAN_KEEPALIVE_INTERVAL_MS) {
+  if ((now_tick - base_horizon_state.last_can_send_tick) >= BASE_HORIZON_CAN_SEND_INTERVAL_MS) {
     return true;
   }
 
   return false;
+}
+
+static void base_horizon_publish_can_if_due(void)
+{
+  uint32_t now_tick;
+
+  now_tick = HAL_GetTick();
+  if (base_horizon_should_send_can(now_tick) &&
+      base_horizon_queue_distance_can(base_horizon_state.last_distance_tenths_mm)) {
+    base_horizon_state.last_can_distance_tenths_mm = base_horizon_state.last_distance_tenths_mm;
+    base_horizon_state.last_can_send_tick = now_tick;
+    base_horizon_state.has_last_can_distance = true;
+  }
 }
 
 static void base_horizon_publish_sample(const BaseHorizonSample *sample)
@@ -344,13 +358,6 @@ static void base_horizon_publish_sample(const BaseHorizonSample *sample)
   base_horizon_state.has_last_total_counts = true;
 
   now_tick = HAL_GetTick();
-  if (base_horizon_should_send_can(sample->distance_tenths_mm, now_tick) &&
-      base_horizon_queue_distance_can(sample->distance_tenths_mm)) {
-    base_horizon_state.last_can_distance_tenths_mm = sample->distance_tenths_mm;
-    base_horizon_state.last_can_send_tick = now_tick;
-    base_horizon_state.has_last_can_distance = true;
-  }
-
   if ((now_tick - base_horizon_state.last_encoder_log_tick) >= BASE_HORIZON_LOG_INTERVAL_MS) {
     int32_t abs_distance_tenths_mm;
 
@@ -396,4 +403,6 @@ void base_horizon_process(void)
       base_horizon_validate_distance(sample.distance_tenths_mm)) {
     base_horizon_publish_sample(&sample);
   }
+
+  base_horizon_publish_can_if_due();
 }

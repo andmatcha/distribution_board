@@ -14,7 +14,7 @@ extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim3;
 extern UART_HandleTypeDef huart1;
 
-#define ENCODER_CAN_KEEPALIVE_INTERVAL_MS 200U
+#define ENCODER_CAN_SEND_INTERVAL_MS 20U
 #define ENCODER_REQUEST_TIMEOUT_MS 10U
 
 static volatile bool encoder_request_pending = false;
@@ -23,6 +23,7 @@ static uint32_t encoder_request_start_tick = 0U;
 static bool encoder_has_last_position = false;
 static uint16_t encoder_last_position = 0U;
 static uint32_t encoder_last_can_queue_tick = 0U;
+static bool encoder_has_sent_can = false;
 
 static void start_encoder_request(void)
 {
@@ -48,6 +49,26 @@ static void process_encoder_request(void)
   }
 }
 
+static void process_encoder_can_publish(void)
+{
+  uint32_t now_tick;
+
+  if (!encoder_has_last_position) {
+    return;
+  }
+
+  now_tick = HAL_GetTick();
+  if (encoder_has_sent_can &&
+      (now_tick - encoder_last_can_queue_tick) < ENCODER_CAN_SEND_INTERVAL_MS) {
+    return;
+  }
+
+  if (can_control_enqueue_encoder_position(encoder_last_position)) {
+    encoder_last_can_queue_tick = now_tick;
+    encoder_has_sent_can = true;
+  }
+}
+
 void init(void)
 {
   led_set(LED_COLOR_RED, LED_STATE_OFF);
@@ -60,30 +81,23 @@ void init(void)
   encoder_init(&huart1);
   encoder_request_pending = false;
   encoder_request_in_flight = false;
+  encoder_has_last_position = false;
+  encoder_has_sent_can = false;
+  encoder_last_can_queue_tick = 0U;
   start_encoder_request();
 }
 
 void poll(void)
 {
   uint16_t position = 0;
-  uint32_t now_tick;
 
   if (encoder_get_position(&position)) {
     printf("Encoder Data: %u\n", position);
-    if (can_control_enqueue_encoder_position(position)) {
-      encoder_last_can_queue_tick = HAL_GetTick();
-    }
     encoder_last_position = position;
     encoder_has_last_position = true;
-  } else if (encoder_has_last_position) {
-    now_tick = HAL_GetTick();
-    if ((now_tick - encoder_last_can_queue_tick) >= ENCODER_CAN_KEEPALIVE_INTERVAL_MS) {
-      if (can_control_enqueue_encoder_position(encoder_last_position)) {
-        encoder_last_can_queue_tick = now_tick;
-      }
-    }
   }
 
+  process_encoder_can_publish();
   can_control_process_tx();
   process_encoder_request();
 }
