@@ -65,6 +65,7 @@ static void base_horizon_initialize_runtime(void);
 static void base_horizon_capture_origin_position(void);
 static uint16_t base_horizon_shift_position(uint16_t pos);
 static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, int16_t turns);
+static bool base_horizon_build_position_only_sample(BaseHorizonSample *sample, uint16_t pos);
 static bool base_horizon_read_sample(BaseHorizonSample *sample);
 static bool base_horizon_validate_distance(int16_t distance_tenths_mm);
 static bool base_horizon_should_send_can(int16_t distance_tenths_mm, uint32_t now_tick);
@@ -186,6 +187,29 @@ static bool base_horizon_build_sample(BaseHorizonSample *sample, uint16_t pos, i
   return true;
 }
 
+static bool base_horizon_build_position_only_sample(BaseHorizonSample *sample, uint16_t pos)
+{
+  int32_t total_counts;
+  uint16_t shifted_pos;
+
+  if (sample == NULL) {
+    return false;
+  }
+
+  shifted_pos = base_horizon_shift_position(pos);
+  if (base_horizon_state.has_last_total_counts) {
+    total_counts = base_horizon_unwrap_counts(shifted_pos, base_horizon_state.last_total_counts);
+  } else {
+    total_counts = (int32_t)shifted_pos;
+  }
+
+  sample->pos = shifted_pos;
+  sample->turns = (int16_t)(total_counts / 16384);
+  sample->total_counts = total_counts;
+  sample->distance_tenths_mm = (int16_t)roundf((float)total_counts * 50.0f / 16384.0f);
+  return true;
+}
+
 static bool base_horizon_read_sample(BaseHorizonSample *sample)
 {
   uint32_t now_tick;
@@ -230,7 +254,7 @@ static bool base_horizon_read_sample(BaseHorizonSample *sample)
         }
         if ((now_tick - base_horizon_encoder_phase_start_tick) >= BASE_HORIZON_ENCODER_RESPONSE_TIMEOUT_MS) {
           base_horizon_encoder_phase = BASE_HORIZON_ENCODER_PHASE_REQUEST_POSITION;
-          break;
+          return base_horizon_build_position_only_sample(sample, base_horizon_pending_pos);
         }
         return false;
 

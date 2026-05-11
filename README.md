@@ -55,7 +55,7 @@ checksum = 0x3 ^ ((word >> 0) & 0x3) ^ ... ^ ((word >> 12) & 0x3)
 
 board1 は Horizon/Roll の最新フレームを 1 slot ずつ保持するスケジューラで交互送信します。値が変わったとき、または同値でも 200 ms 経過したときに送信対象になります。CAN bus-off を検出した場合は 1000 ms のクールダウンを入れて復帰を試みます。
 
-board2/3/4 はエンコーダ位置を 8 要素リングバッファへ積み、メインループの `can_control_process_tx()` で空きメールボックス分だけ送信します。リングバッファは head/tail が一致しないようにする実装なので、実効容量は 7 件です。
+board2/3/4 はエンコーダ位置を 8 要素リングバッファへ積み、メインループの `can_control_process_tx()` で空きメールボックス分だけ送信します。リングバッファは head/tail が一致しないようにする実装なので、実効容量は 7 件です。新しい有効位置が来たときに送信し、同値でも最後の有効位置を 200 ms 間隔で keepalive 送信します。送信成功後にのみ tail を進めるため、`HAL_CAN_AddTxMessage()` 失敗時に先頭データを失いません。CAN bus-off を検出した場合は 1000 ms のクールダウンを入れて再初期化と再始動を試みます。
 
 ### board4 の受信
 
@@ -75,8 +75,8 @@ board4 は CAN filter を ID list mode にして `0x208` と `0x1FF` のみ FIFO
 
 - UART: `USART1` (`PA9=TX`, `PA10=RX`)、DMA RX、RS485 DE は `PA8`。
 - 初期化時にエンコーダをリセットし、10 ms 待機した後、現在位置を原点として取り込みます。
-- メインループでは position (`0x54`) と turns (`0x55`) を状態機械で順に要求します。各応答待ちは 10 ms timeout です。
-- `shifted_pos = (raw_pos - origin_position) & 0x3FFF` とし、`total_counts = turns * 16384 + shifted_pos` を作ります。turns と前回値の食い違いが大きい場合は、前回 `total_counts` から unwrap した予測値を優先します。
+- メインループでは position (`0x54`) と turns (`0x55`) を状態機械で順に要求します。各応答待ちは 10 ms timeout です。turns 応答が timeout した場合でも、position から前回値基準の unwrap を行って 0x300 の送信を継続します。
+- `shifted_pos = (raw_pos - origin_position) & 0x3FFF` とし、turns が取れた場合は `total_counts = turns * 16384 + shifted_pos` を作ります。turns と前回値の食い違いが大きい場合は、前回 `total_counts` から unwrap した予測値を優先します。
 - 距離は `distance_tenths_mm = round(total_counts * 50 / 16384)` です。CAN payload では signed 16 bit big-endian で送信します。
 - 異常値フィルタは、初回を受理、前回との差が 10 tenth-mm 以下なら即受理、それより大きい遷移は 10 tenth-mm 以内に収まる値が 3 回続いたときに受理します。
 
@@ -92,8 +92,8 @@ board2 と board3 は CAN ID 以外同じ流れです。
 
 1. `init()` で LED を Green ON、Red/Yellow OFF にし、CAN を開始します。
 2. `USART1` (`PA9=TX`, `PA10=RX`) と RS485 DE `PA8` でエンコーダを初期化し、position (`0x54`) を要求します。
-3. UART RX complete callback で 2 byte を復号し、同じ callback 内で次の position 要求をすぐ発行します。
-4. `poll()` で `encoder_get_position()` が true なら CAN 送信用リングバッファへ積み、`can_control_process_tx()` で送信します。
+3. UART RX complete callback では 2 byte の復号と「次回リクエストが必要」というフラグ設定だけを行います。
+4. `poll()` で `encoder_get_position()` が true なら CAN 送信用リングバッファへ積み、`can_control_process_tx()` で送信します。その後、callback で立てたフラグを見て次の position 要求を発行します。応答が 10 ms 以上返らない場合も、`poll()` 側で position 要求を再発行します。
 
 board2 は CAN ID `0x302`、board3 は CAN ID `0x303` を使います。
 

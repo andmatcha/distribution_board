@@ -6,7 +6,6 @@
  */
 
 #include "modules/encoder.h"
-#include <stdio.h>
 
 /* Private defines -----------------------------------------------------------*/
 #define ENCODER_CMD 0x54
@@ -23,6 +22,49 @@ static uint16_t encoder_position = 0;
 static volatile bool encoder_data_ready = false;
 static volatile uint32_t encoder_uart_error_count = 0;
 static volatile uint32_t encoder_checksum_error_count = 0;
+
+static void encoder_clear_uart_errors(void);
+static bool encoder_decode_position(uint8_t lsb, uint8_t msb, uint16_t *position);
+
+static void encoder_clear_uart_errors(void)
+{
+  if (encoder_huart == NULL) {
+    return;
+  }
+
+  __HAL_UART_CLEAR_FEFLAG(encoder_huart);
+  __HAL_UART_CLEAR_NEFLAG(encoder_huart);
+  __HAL_UART_CLEAR_OREFLAG(encoder_huart);
+  __HAL_UART_CLEAR_PEFLAG(encoder_huart);
+  (void)encoder_huart->Instance->DR;
+}
+
+static bool encoder_decode_position(uint8_t lsb, uint8_t msb, uint16_t *position)
+{
+  uint16_t w;
+  uint16_t cs;
+
+  if (position == NULL) {
+    return false;
+  }
+
+  w = (uint16_t)lsb | ((uint16_t)msb << 8);
+  cs = 0x3U;
+  cs ^= (w >> 0) & 0x3U;
+  cs ^= (w >> 2) & 0x3U;
+  cs ^= (w >> 4) & 0x3U;
+  cs ^= (w >> 6) & 0x3U;
+  cs ^= (w >> 8) & 0x3U;
+  cs ^= (w >> 10) & 0x3U;
+  cs ^= (w >> 12) & 0x3U;
+
+  if (cs != (w >> 14)) {
+    return false;
+  }
+
+  *position = (uint16_t)(w & 0x3FFFU);
+  return true;
+}
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -51,12 +93,35 @@ void encoder_init(UART_HandleTypeDef *huart)
 void encoder_request_position(void)
 {
   static uint8_t cmd = ENCODER_CMD;
+  uint32_t start_tick;
+
+  if (encoder_huart == NULL) {
+    return;
+  }
+
+  HAL_UART_DMAStop(encoder_huart);
+  encoder_clear_uart_errors();
 
   RS485_TX_EN();
-  HAL_UART_Transmit(encoder_huart, &cmd, 1, 10);
-  while (__HAL_UART_GET_FLAG(encoder_huart, UART_FLAG_TC) == RESET) {}
+  if (HAL_UART_Transmit(encoder_huart, &cmd, 1, 10) != HAL_OK) {
+    encoder_uart_error_count++;
+    RS485_RX_EN();
+    return;
+  }
+
+  start_tick = HAL_GetTick();
+  while (__HAL_UART_GET_FLAG(encoder_huart, UART_FLAG_TC) == RESET) {
+    if ((HAL_GetTick() - start_tick) > 2U) {
+      encoder_uart_error_count++;
+      break;
+    }
+  }
+
   RS485_RX_EN();
-  HAL_UART_Receive_DMA(encoder_huart, encoder_rx_buf, ENCODER_BUFFER_SIZE);
+  encoder_huart->RxState = HAL_UART_STATE_READY;
+  if (HAL_UART_Receive_DMA(encoder_huart, encoder_rx_buf, ENCODER_BUFFER_SIZE) != HAL_OK) {
+    encoder_uart_error_count++;
+  }
 }
 
 /**
@@ -64,16 +129,21 @@ void encoder_request_position(void)
  */
 bool encoder_get_position(uint16_t *position)
 {
+  bool ready = false;
+
   if (position == NULL) {
     return false;
   }
 
+  __disable_irq();
   if (encoder_data_ready) {
     encoder_data_ready = false;
     *position = encoder_position;
-    return true;
+    ready = true;
   }
-  return false;
+  __enable_irq();
+
+  return ready;
 }
 
 /**
@@ -81,27 +151,19 @@ bool encoder_get_position(uint16_t *position)
  */
 void encoder_rx_complete_callback(UART_HandleTypeDef *huart)
 {
+  uint16_t position = 0;
+
+  if (encoder_huart == NULL || huart->Instance != encoder_huart->Instance) {
+    return;
+  }
+
   HAL_UART_DMAStop(huart);
-  uint16_t w;
-  if (huart->Instance == encoder_huart->Instance) {
-    w = (encoder_rx_buf[0] | encoder_rx_buf[1] << 8);
 
-    uint16_t cs = 0x3;
-    cs ^= (w >> 0) & 0x3;
-    cs ^= (w >> 2) & 0x3;
-    cs ^= (w >> 4) & 0x3;
-    cs ^= (w >> 6) & 0x3;
-    cs ^= (w >> 8) & 0x3;
-    cs ^= (w >> 10) & 0x3;
-    cs ^= (w >> 12) & 0x3;
-
-    if (cs == (w >> 14)) {
-      encoder_position = (w & 0x3FFF);
-    } else {
-      encoder_checksum_error_count++;
-    }
-
+  if (encoder_decode_position(encoder_rx_buf[0], encoder_rx_buf[1], &position)) {
+    encoder_position = position;
     encoder_data_ready = true;
+  } else {
+    encoder_checksum_error_count++;
   }
 }
 
@@ -110,43 +172,16 @@ void encoder_rx_complete_callback(UART_HandleTypeDef *huart)
  */
 void encoder_error_callback(UART_HandleTypeDef *huart)
 {
-  if (huart->Instance != encoder_huart->Instance) {
+  if (encoder_huart == NULL || huart->Instance != encoder_huart->Instance) {
     return;
   }
 
-  uint32_t err = HAL_UART_GetError(huart);
   encoder_uart_error_count++;
-  printf("[USART1] Error: 0x%08lX\n", (unsigned long)err);
+  encoder_data_ready = false;
 
-  /* Clear all error flags */
-  if (err & HAL_UART_ERROR_ORE) {
-    __HAL_UART_CLEAR_OREFLAG(huart);
-  }
-  if (err & HAL_UART_ERROR_FE) {
-    __HAL_UART_CLEAR_FEFLAG(huart);
-  }
-  if (err & HAL_UART_ERROR_NE) {
-    __HAL_UART_CLEAR_NEFLAG(huart);
-  }
-  if (err & HAL_UART_ERROR_PE) {
-    __HAL_UART_CLEAR_PEFLAG(huart);
-  }
-
-  /* Flush data register */
-  (void)__HAL_UART_FLUSH_DRREGISTER(huart);
-
-  /* Ensure RX mode */
+  HAL_UART_DMAStop(huart);
+  encoder_clear_uart_errors();
   RS485_RX_EN();
-
-  /* Additional DR clear */
-  if (encoder_huart->Instance->DR) {
-    (void)encoder_huart->Instance->DR;
-  }
-
-  /* Restart DMA reception */
-  if (HAL_UART_Receive_DMA(encoder_huart, encoder_rx_buf, ENCODER_BUFFER_SIZE) != HAL_OK) {
-    Error_Handler();
-  }
 }
 
 /**
