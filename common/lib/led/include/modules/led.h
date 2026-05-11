@@ -18,5 +18,3 @@ typedef enum {
 void led_set(LedColor color, LedState state);
 
 #endif /* LED_H */
-
-

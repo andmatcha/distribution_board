@@ -1,6 +1,17 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
 
+#if BOARD_CAN_CONTROL_ENABLE_RX
+#include "modules/dc_motor.h"
+#include "modules/led.h"
+#include "modules/servo.h"
+#include <stdio.h>
+#endif
+
+#ifndef BOARD_CAN_RX_DC_SPEED
+#define BOARD_CAN_RX_DC_SPEED 100
+#endif
+
 #define CAN_TX_QUEUE_SIZE 8U
 #define CAN_BUS_OFF_COOLDOWN_MS 1000U
 
@@ -12,10 +23,13 @@ static uint32_t can_bus_off_until_tick = 0U;
 
 static bool can_control_start(void);
 static void can_control_handle_error(void);
+#if BOARD_CAN_CONTROL_ENABLE_RX
+static void can_filter_config(void);
+#endif
 static bool can_tx_queue_peek(uint16_t *position);
 static void can_tx_queue_drop(void);
 
-// CAN送信初期化
+// CAN initialize
 void can_control_init(CAN_HandleTypeDef *hcan) {
   hcan_ctrl = hcan;
   encoder_tx_head = 0U;
@@ -84,6 +98,25 @@ void can_control_process_tx(void) {
   }
 }
 
+#if BOARD_CAN_CONTROL_ENABLE_RX
+// CAN filter setting for board-specific RX IDs.
+static void can_filter_config(void) {
+  CAN_FilterTypeDef filter_config;
+  filter_config.FilterBank = 0;
+  filter_config.FilterMode = CAN_FILTERMODE_IDLIST;
+  filter_config.FilterScale = CAN_FILTERSCALE_16BIT;
+  filter_config.FilterIdHigh = (CAN_ID_DC << 5);
+  filter_config.FilterIdLow = (CAN_ID_SERVO << 5);
+  filter_config.FilterMaskIdHigh = 0;
+  filter_config.FilterMaskIdLow = 0;
+  filter_config.FilterFIFOAssignment = CAN_RX_FIFO0;
+  filter_config.FilterActivation = ENABLE;
+  filter_config.SlaveStartFilterBank = 14;
+
+  HAL_CAN_ConfigFilter(hcan_ctrl, &filter_config);
+}
+#endif
+
 static bool can_control_start(void) {
   HAL_CAN_StateTypeDef state;
 
@@ -93,6 +126,9 @@ static bool can_control_start(void) {
 
   state = HAL_CAN_GetState(hcan_ctrl);
   if (state == HAL_CAN_STATE_LISTENING) {
+#if BOARD_CAN_CONTROL_ENABLE_RX
+    (void)HAL_CAN_ActivateNotification(hcan_ctrl, CAN_IT_RX_FIFO0_MSG_PENDING);
+#endif
     return true;
   }
 
@@ -101,7 +137,13 @@ static bool can_control_start(void) {
   }
 
   if (HAL_CAN_GetState(hcan_ctrl) == HAL_CAN_STATE_READY) {
+#if BOARD_CAN_CONTROL_ENABLE_RX
+    can_filter_config();
+#endif
     if (HAL_CAN_Start(hcan_ctrl) == HAL_OK) {
+#if BOARD_CAN_CONTROL_ENABLE_RX
+      (void)HAL_CAN_ActivateNotification(hcan_ctrl, CAN_IT_RX_FIFO0_MSG_PENDING);
+#endif
       return true;
     }
   }
@@ -143,3 +185,57 @@ static void can_tx_queue_drop(void) {
 
   encoder_tx_tail = (uint8_t)((encoder_tx_tail + 1U) % CAN_TX_QUEUE_SIZE);
 }
+
+#if BOARD_CAN_CONTROL_ENABLE_RX
+// CAN receive callback
+void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
+  led_set(LED_COLOR_YELLOW, LED_STATE_ON);
+  CAN_RxHeaderTypeDef rx_header;
+  uint8_t rx_data[8];
+
+  // Get message from FIFO0.
+  if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, rx_data) != HAL_OK) {
+    return;
+  }
+
+  // Branch by received ID.
+  if (rx_header.StdId == CAN_ID_DC) {
+    // DC motor command (0x208)
+    if (rx_header.DLC < 5) {
+      return;
+    }
+
+    if (rx_data[0] == 1) {
+      dc_motor_push();
+    } else {
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
+    }
+
+    if (rx_data[3] == 1) {
+      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_FORWARD, BOARD_CAN_RX_DC_SPEED);
+    } else if (rx_data[4] == 1) {
+      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_REVERSE, BOARD_CAN_RX_DC_SPEED);
+    } else {
+      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_STOP, 0);
+    }
+  } else if (rx_header.StdId == CAN_ID_SERVO) {
+    // Servo command (0x1FF)
+    if (rx_header.DLC < 6) {
+      return;
+    }
+
+    int16_t data = (int16_t)(rx_data[4]<<8 | rx_data[5]);
+    if (data < 0) {
+      servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
+      printf("SERVO OPEN\n");
+    } else if (data == 0) {
+      servo_control(SERVO_DIR_STOP, SERVO_MODE_NORMAL);
+      printf("SERVO STOP\n");
+    } else {
+      servo_control(SERVO_DIR_CLOSE, SERVO_MODE_NORMAL);
+      printf("SERVO CLOSE\n");
+    }
+  }
+  led_set(LED_COLOR_YELLOW, LED_STATE_OFF);
+}
+#endif

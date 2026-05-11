@@ -6,14 +6,25 @@
  */
 
 #include "modules/encoder.h"
+#include "board_config.h"
 
 /* Private defines -----------------------------------------------------------*/
-#define ENCODER_CMD 0x54
+#ifndef BOARD_ENCODER_CMD_POSITION
+#define BOARD_ENCODER_CMD_POSITION 0x54
+#endif
+
 #define ENCODER_BUFFER_SIZE 2
-#define ENCODER_RS485_DE_PIN GPIO_PIN_8
-#define ENCODER_RS485_DE_PORT GPIOA
-#define RS485_TX_EN()   (GPIOA->BSRR = GPIO_PIN_8)
-#define RS485_RX_EN()   (GPIOA->BRR = GPIO_PIN_8)
+
+#ifndef BOARD_ENCODER_RS485_DE_PIN
+#define BOARD_ENCODER_RS485_DE_PIN GPIO_PIN_8
+#endif
+
+#ifndef BOARD_ENCODER_RS485_DE_PORT
+#define BOARD_ENCODER_RS485_DE_PORT GPIOA
+#endif
+
+#define RS485_TX_EN() (BOARD_ENCODER_RS485_DE_PORT->BSRR = BOARD_ENCODER_RS485_DE_PIN)
+#define RS485_RX_EN() (BOARD_ENCODER_RS485_DE_PORT->BRR = BOARD_ENCODER_RS485_DE_PIN)
 
 /* Private variables ---------------------------------------------------------*/
 static UART_HandleTypeDef *encoder_huart = NULL;
@@ -92,7 +103,7 @@ void encoder_init(UART_HandleTypeDef *huart)
  */
 void encoder_request_position(void)
 {
-  static uint8_t cmd = ENCODER_CMD;
+  static uint8_t cmd = BOARD_ENCODER_CMD_POSITION;
   uint32_t start_tick;
 
   if (encoder_huart == NULL) {
