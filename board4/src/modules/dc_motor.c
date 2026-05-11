@@ -1,5 +1,6 @@
 /* DC motor control implementation */
 #include "modules/dc_motor.h"
+#include "main.h"
 #include <stdio.h>
 
 // DCモーター用タイマーハンドル
@@ -39,12 +40,16 @@ void dc_motor_init(TIM_HandleTypeDef *htim) {
   // カウンターは既にサーボ初期化で起動済みの想定
   // チャンネル出力のみを有効化（CCERレジスタのCC1Eビット）
   if (!(ccer_before & TIM_CCER_CC1E)) {
-    HAL_TIM_PWM_Start(htim_motor, TIM_CHANNEL_1);
+    if (HAL_TIM_PWM_Start(htim_motor, TIM_CHANNEL_1) != HAL_OK) {
+      Error_Handler();
+    }
   }
 
   // TIM3 CH2 (PB5) - Motor2 IN1 (PWM)
   if (!(ccer_before & TIM_CCER_CC2E)) {
-    HAL_TIM_PWM_Start(htim_motor, TIM_CHANNEL_2);
+    if (HAL_TIM_PWM_Start(htim_motor, TIM_CHANNEL_2) != HAL_OK) {
+      Error_Handler();
+    }
   }
 
   // 初期状態: 両モーター停止

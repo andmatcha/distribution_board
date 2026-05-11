@@ -1,5 +1,6 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
+#include "main.h"
 #include "modules/servo.h"
 #include "modules/dc_motor.h"
 #include "modules/led.h"
@@ -107,7 +108,10 @@ static void can_filter_config(void) {
   filter_config.FilterActivation = ENABLE;
   filter_config.SlaveStartFilterBank = 14;
 
-  HAL_CAN_ConfigFilter(hcan_ctrl, &filter_config);
+  if (HAL_CAN_ConfigFilter(hcan_ctrl, &filter_config) != HAL_OK) {
+    printf("CAN filter error: 0x%08lX\n", (unsigned long)HAL_CAN_GetError(hcan_ctrl));
+    Error_Handler();
+  }
 }
 
 static bool can_control_start(void) {
@@ -181,7 +185,7 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
 
   // FIFO0からメッセージ取得
   if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, rx_data) != HAL_OK) {
-    return;
+    Error_Handler();
   }
 
   // 受信IDによって処理を分岐

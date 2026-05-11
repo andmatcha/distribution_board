@@ -120,6 +120,12 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
   }
 }
 
+void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan_handle)
+{
+  (void)hcan_handle;
+  Error_Handler();
+}
+
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan_handle)
 {
   can_control_rx_callback(hcan_handle);

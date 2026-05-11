@@ -1,5 +1,7 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
+#include "main.h"
+#include <stdio.h>
 
 #define CAN_TX_QUEUE_SIZE 8U
 #define CAN_BUS_OFF_COOLDOWN_MS 1000U

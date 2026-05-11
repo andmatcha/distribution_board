@@ -11,6 +11,7 @@
 #define ENCODER_MAX_DEVICES 4U
 #define ENCODER_DEFAULT_DE_PIN GPIO_PIN_8
 #define ENCODER_DEFAULT_DE_PORT GPIOA
+#define ENCODER_UART_TX_TIMEOUT_MS 10U
 
 static EncoderDevice default_encoder_device;
 static EncoderDevice *encoder_devices[ENCODER_MAX_DEVICES];
@@ -167,6 +168,7 @@ bool encoder_device_init(EncoderDevice *device,
 void encoder_device_reset(EncoderDevice *device)
 {
   uint8_t cmds[] = {ENCODER_CMD_RESET_1, ENCODER_CMD_RESET_2};
+  uint32_t start_tick;
 
   if (device == NULL || device->huart == NULL) {
     return;
@@ -178,11 +180,15 @@ void encoder_device_reset(EncoderDevice *device)
   encoder_tx_enable(device);
   if (HAL_UART_Transmit(device->huart, cmds, 2U, 10U) != HAL_OK) {
     device->uart_error_count++;
-    encoder_rx_enable(device);
-    return;
+    Error_Handler();
   }
 
+  start_tick = HAL_GetTick();
   while ((device->huart->Instance->SR & UART_FLAG_TC) == 0U) {
+    if ((HAL_GetTick() - start_tick) >= ENCODER_UART_TX_TIMEOUT_MS) {
+      device->uart_error_count++;
+      Error_Handler();
+    }
   }
 
   encoder_rx_enable(device);
@@ -190,6 +196,8 @@ void encoder_device_reset(EncoderDevice *device)
 
 void encoder_device_request_data(EncoderDevice *device, uint8_t cmd)
 {
+  uint32_t start_tick;
+
   if (device == NULL || device->huart == NULL) {
     return;
   }
@@ -210,11 +218,15 @@ void encoder_device_request_data(EncoderDevice *device, uint8_t cmd)
   encoder_tx_enable(device);
   if (HAL_UART_Transmit(device->huart, &cmd, 1U, 2U) != HAL_OK) {
     device->uart_error_count++;
-    encoder_rx_enable(device);
-    return;
+    Error_Handler();
   }
 
+  start_tick = HAL_GetTick();
   while ((device->huart->Instance->SR & UART_FLAG_TC) == 0U) {
+    if ((HAL_GetTick() - start_tick) >= ENCODER_UART_TX_TIMEOUT_MS) {
+      device->uart_error_count++;
+      Error_Handler();
+    }
   }
 
   encoder_rx_enable(device);
@@ -223,6 +235,7 @@ void encoder_device_request_data(EncoderDevice *device, uint8_t cmd)
   device->huart->RxState = HAL_UART_STATE_READY;
   if (HAL_UART_Receive_DMA(device->huart, device->rx_buf, ENCODER_BUFFER_SIZE) != HAL_OK) {
     device->uart_error_count++;
+    Error_Handler();
   }
 }
 
@@ -339,6 +352,7 @@ void encoder_rx_complete_callback(UART_HandleTypeDef *huart)
       device->is_data_ready = true;
     } else {
       device->checksum_error_count++;
+      Error_Handler();
     }
   } else if (device->last_cmd == ENCODER_CMD_TURNS) {
     int16_t turns = 0;
@@ -348,6 +362,7 @@ void encoder_rx_complete_callback(UART_HandleTypeDef *huart)
       device->is_data_ready = true;
     } else {
       device->checksum_error_count++;
+      Error_Handler();
     }
   }
 }
@@ -362,13 +377,6 @@ void encoder_error_callback(UART_HandleTypeDef *huart)
   }
 
   device->uart_error_count++;
-
-  __HAL_UART_CLEAR_FEFLAG(huart);
-  __HAL_UART_CLEAR_NEFLAG(huart);
-  __HAL_UART_CLEAR_OREFLAG(huart);
-  __HAL_UART_CLEAR_PEFLAG(huart);
-  (void)huart->Instance->DR;
-
-  HAL_UART_DMAStop(huart);
-  encoder_rx_enable(device);
+  (void)huart;
+  Error_Handler();
 }
