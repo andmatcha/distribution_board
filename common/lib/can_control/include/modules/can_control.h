@@ -51,8 +51,15 @@ void can_control_process_tx(void);
 
 #if BOARD_CAN_CONTROL_ENABLE_RX
 /**
+ * @brief Process queued CAN RX commands outside the interrupt context
+ * @retval None
+ */
+void can_control_process_rx(void);
+
+/**
  * @brief CAN RX callback helper
  * @param hcan CAN handle
+ * @note Intended to be called from HAL_CAN_RxFifo0MsgPendingCallback.
  */
 void can_control_rx_callback(CAN_HandleTypeDef *hcan);
 #endif

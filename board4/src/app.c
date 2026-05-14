@@ -25,6 +25,7 @@ void init(void)
 
 void poll(void)
 {
+  can_control_process_rx();
   dc_motor_process();
   encoder_can_publisher_process();
 }

@@ -38,8 +38,8 @@ static uint32_t push_phase_started_tick = 0U;
 // PWM周波数: 50Hz
 #define TIM3_PERIOD  19999
 #define PUSH_SPEED_PERCENT 100U
-#define PUSH_FORWARD_TIME_MS 1000U
-#define PUSH_REVERSE_TIME_MS 1000U
+#define PUSH_FORWARD_TIME_MS 2000U
+#define PUSH_REVERSE_TIME_MS 2000U
 
 void dc_motor_init(TIM_HandleTypeDef *htim) {
   htim_motor = htim;
@@ -150,7 +150,7 @@ void dc_motor_process(void) {
       push_state = DC_MOTOR_PUSH_STATE_FORWARD;
       push_requested = false;
       push_phase_started_tick = now_tick;
-      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_FORWARD, PUSH_SPEED_PERCENT);
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_REVERSE, PUSH_SPEED_PERCENT);
       break;
 
     case DC_MOTOR_PUSH_STATE_FORWARD:
@@ -159,7 +159,7 @@ void dc_motor_process(void) {
       }
       push_phase_started_tick = now_tick;
       push_state = DC_MOTOR_PUSH_STATE_REVERSE;
-      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_REVERSE, PUSH_SPEED_PERCENT);
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_FORWARD, PUSH_SPEED_PERCENT);
       break;
 
     case DC_MOTOR_PUSH_STATE_REVERSE:

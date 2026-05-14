@@ -13,18 +13,50 @@
 #endif
 
 #define CAN_TX_QUEUE_SIZE 8U
+#define CAN_RX_COMMAND_QUEUE_SIZE 8U
+#define CAN_RX_COMMANDS_PER_PROCESS CAN_RX_COMMAND_QUEUE_SIZE
 #define CAN_BUS_OFF_COOLDOWN_MS 1000U
+
+#if BOARD_CAN_CONTROL_ENABLE_RX
+typedef enum {
+  CAN_RX_COMMAND_DC = 0,
+  CAN_RX_COMMAND_SERVO
+} CanRxCommandType;
+
+typedef struct {
+  CanRxCommandType type;
+  union {
+    struct {
+      bool push_motor1;
+      bool motor2_forward;
+      bool motor2_reverse;
+    } dc;
+    struct {
+      int16_t data;
+    } servo;
+  } payload;
+} CanRxCommand;
+#endif
 
 static CAN_HandleTypeDef *hcan_ctrl = NULL;
 static volatile uint16_t encoder_tx_queue[CAN_TX_QUEUE_SIZE];
 static volatile uint8_t encoder_tx_head = 0;
 static volatile uint8_t encoder_tx_tail = 0;
 static uint32_t can_bus_off_until_tick = 0U;
+#if BOARD_CAN_CONTROL_ENABLE_RX
+static volatile CanRxCommand can_rx_command_queue[CAN_RX_COMMAND_QUEUE_SIZE];
+static volatile uint8_t can_rx_command_head = 0U;
+static volatile uint8_t can_rx_command_tail = 0U;
+static volatile uint32_t can_rx_command_drop_count = 0U;
+#endif
 
 static bool can_control_start(void);
 static void can_control_handle_error(void);
 #if BOARD_CAN_CONTROL_ENABLE_RX
 static void can_filter_config(void);
+static bool can_rx_command_queue_push(const CanRxCommand *command);
+static bool can_rx_command_queue_pop(CanRxCommand *command);
+static void can_control_process_rx_command(const CanRxCommand *command);
 #endif
 static bool can_tx_queue_peek(uint16_t *position);
 static void can_tx_queue_drop(void);
@@ -35,6 +67,11 @@ void can_control_init(CAN_HandleTypeDef *hcan) {
   encoder_tx_head = 0U;
   encoder_tx_tail = 0U;
   can_bus_off_until_tick = 0U;
+#if BOARD_CAN_CONTROL_ENABLE_RX
+  can_rx_command_head = 0U;
+  can_rx_command_tail = 0U;
+  can_rx_command_drop_count = 0U;
+#endif
   (void)can_control_start();
 }
 
@@ -187,9 +224,90 @@ static void can_tx_queue_drop(void) {
 }
 
 #if BOARD_CAN_CONTROL_ENABLE_RX
+void can_control_process_rx(void) {
+  CanRxCommand command;
+  uint8_t processed_count = 0U;
+
+  while ((processed_count < CAN_RX_COMMANDS_PER_PROCESS) &&
+         can_rx_command_queue_pop(&command)) {
+    led_set(LED_COLOR_YELLOW, LED_STATE_ON);
+    can_control_process_rx_command(&command);
+    led_set(LED_COLOR_YELLOW, LED_STATE_OFF);
+    processed_count++;
+  }
+}
+
+static bool can_rx_command_queue_push(const CanRxCommand *command) {
+  uint8_t next_head;
+
+  if (command == NULL) {
+    return false;
+  }
+
+  next_head = (uint8_t)((can_rx_command_head + 1U) % CAN_RX_COMMAND_QUEUE_SIZE);
+  if (next_head == can_rx_command_tail) {
+    can_rx_command_drop_count++;
+    return false;
+  }
+
+  can_rx_command_queue[can_rx_command_head] = *command;
+  can_rx_command_head = next_head;
+  return true;
+}
+
+static bool can_rx_command_queue_pop(CanRxCommand *command) {
+  if (command == NULL) {
+    return false;
+  }
+
+  __disable_irq();
+  if (can_rx_command_tail == can_rx_command_head) {
+    __enable_irq();
+    return false;
+  }
+
+  *command = can_rx_command_queue[can_rx_command_tail];
+  can_rx_command_tail = (uint8_t)((can_rx_command_tail + 1U) % CAN_RX_COMMAND_QUEUE_SIZE);
+  __enable_irq();
+  return true;
+}
+
+static void can_control_process_rx_command(const CanRxCommand *command) {
+  if (command == NULL) {
+    return;
+  }
+
+  if (command->type == CAN_RX_COMMAND_DC) {
+    if (command->payload.dc.push_motor1) {
+      dc_motor_push();
+    } else if (!dc_motor_push_is_active()) {
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
+    }
+
+    if (command->payload.dc.motor2_forward) {
+      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_FORWARD, BOARD_CAN_RX_DC_SPEED);
+    } else if (command->payload.dc.motor2_reverse) {
+      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_REVERSE, BOARD_CAN_RX_DC_SPEED);
+    } else {
+      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_STOP, 0);
+    }
+  } else if (command->type == CAN_RX_COMMAND_SERVO) {
+    if (command->payload.servo.data < 0) {
+      servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
+      LOG("SERVO OPEN\n");
+    } else if (command->payload.servo.data == 0) {
+      servo_control(SERVO_DIR_STOP, SERVO_MODE_NORMAL);
+      LOG("SERVO STOP\n");
+    } else {
+      servo_control(SERVO_DIR_CLOSE, SERVO_MODE_NORMAL);
+      LOG("SERVO CLOSE\n");
+    }
+  }
+}
+
 // CAN receive callback
 void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
-  led_set(LED_COLOR_YELLOW, LED_STATE_ON);
+  CanRxCommand command;
   CAN_RxHeaderTypeDef rx_header;
   uint8_t rx_data[8];
 
@@ -205,37 +323,20 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
       return;
     }
 
-    if (rx_data[0] == 1) {
-      dc_motor_push();
-    } else if (!dc_motor_push_is_active()) {
-      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
-    }
-
-    if (rx_data[3] == 1) {
-      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_FORWARD, BOARD_CAN_RX_DC_SPEED);
-    } else if (rx_data[4] == 1) {
-      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_REVERSE, BOARD_CAN_RX_DC_SPEED);
-    } else {
-      dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_STOP, 0);
-    }
+    command.type = CAN_RX_COMMAND_DC;
+    command.payload.dc.push_motor1 = (rx_data[0] == 1U);
+    command.payload.dc.motor2_forward = (rx_data[3] == 1U);
+    command.payload.dc.motor2_reverse = (rx_data[4] == 1U);
+    (void)can_rx_command_queue_push(&command);
   } else if (rx_header.StdId == CAN_ID_SERVO) {
     // Servo command (0x1FF)
     if (rx_header.DLC < 6) {
       return;
     }
 
-    int16_t data = (int16_t)(rx_data[4]<<8 | rx_data[5]);
-    if (data < 0) {
-      servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
-      LOG("SERVO OPEN\n");
-    } else if (data == 0) {
-      servo_control(SERVO_DIR_STOP, SERVO_MODE_NORMAL);
-      LOG("SERVO STOP\n");
-    } else {
-      servo_control(SERVO_DIR_CLOSE, SERVO_MODE_NORMAL);
-      LOG("SERVO CLOSE\n");
-    }
+    command.type = CAN_RX_COMMAND_SERVO;
+    command.payload.servo.data = (int16_t)(((uint16_t)rx_data[4] << 8) | rx_data[5]);
+    (void)can_rx_command_queue_push(&command);
   }
-  led_set(LED_COLOR_YELLOW, LED_STATE_OFF);
 }
 #endif
