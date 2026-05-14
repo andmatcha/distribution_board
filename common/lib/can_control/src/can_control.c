@@ -207,7 +207,7 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
 
     if (rx_data[0] == 1) {
       dc_motor_push();
-    } else {
+    } else if (!dc_motor_push_is_active()) {
       dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
     }
 

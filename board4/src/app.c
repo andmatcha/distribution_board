@@ -25,6 +25,7 @@ void init(void)
 
 void poll(void)
 {
+  dc_motor_process();
   encoder_can_publisher_process();
 }
 

@@ -2,8 +2,17 @@
 #include "modules/dc_motor.h"
 #include <stdio.h>
 
+typedef enum {
+  DC_MOTOR_PUSH_STATE_IDLE = 0,
+  DC_MOTOR_PUSH_STATE_FORWARD,
+  DC_MOTOR_PUSH_STATE_REVERSE
+} DcMotorPushState;
+
 // DCモーター用タイマーハンドル
 static TIM_HandleTypeDef *htim_motor = NULL;
+static volatile bool push_requested = false;
+static volatile DcMotorPushState push_state = DC_MOTOR_PUSH_STATE_IDLE;
+static uint32_t push_phase_started_tick = 0U;
 
 // TB67H450FNGドライバー制御:
 // IN1: PWM入力 (TIM3_CH1=PB4 for Motor1, TIM3_CH2=PB5 for Motor2)
@@ -28,9 +37,15 @@ static TIM_HandleTypeDef *htim_motor = NULL;
 // TIM3のARR値 (Period = 19999, カウント0〜19999で20000段階)
 // PWM周波数: 50Hz
 #define TIM3_PERIOD  19999
+#define PUSH_SPEED_PERCENT 100U
+#define PUSH_FORWARD_TIME_MS 1000U
+#define PUSH_REVERSE_TIME_MS 1000U
 
 void dc_motor_init(TIM_HandleTypeDef *htim) {
   htim_motor = htim;
+  push_requested = false;
+  push_state = DC_MOTOR_PUSH_STATE_IDLE;
+  push_phase_started_tick = 0U;
 
   // TIM3カウンターが既に起動しているか確認
   uint32_t ccer_before = htim_motor->Instance->CCER;
@@ -118,20 +133,61 @@ void dc_motor_set(DcMotorId motor_id, DcMotorDirection direction, uint8_t duty_p
   }
 }
 
-void dc_motor_push() {
-  // キーボードニョッキ動作: 出っ張る→引っ込む
-  const uint8_t speed = 100;        // モーター速度 (%)
-  const uint32_t push_time = 1000;  // 出っ張る時間 (ms)
-  const uint32_t pull_time = 1000;  // 引っ込む時間 (ms)
+void dc_motor_process(void) {
+  uint32_t now_tick;
 
-  // 正転: 出っ張る
-  dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_FORWARD, speed);
-  HAL_Delay(push_time);
+  if (htim_motor == NULL) {
+    return;
+  }
 
-  // 逆転: 引っ込む
-  dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_REVERSE, speed);
-  HAL_Delay(pull_time);
+  now_tick = HAL_GetTick();
 
-  // 停止
-  dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
+  switch (push_state) {
+    case DC_MOTOR_PUSH_STATE_IDLE:
+      if (!push_requested) {
+        return;
+      }
+      push_state = DC_MOTOR_PUSH_STATE_FORWARD;
+      push_requested = false;
+      push_phase_started_tick = now_tick;
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_FORWARD, PUSH_SPEED_PERCENT);
+      break;
+
+    case DC_MOTOR_PUSH_STATE_FORWARD:
+      if ((uint32_t)(now_tick - push_phase_started_tick) < PUSH_FORWARD_TIME_MS) {
+        return;
+      }
+      push_phase_started_tick = now_tick;
+      push_state = DC_MOTOR_PUSH_STATE_REVERSE;
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_REVERSE, PUSH_SPEED_PERCENT);
+      break;
+
+    case DC_MOTOR_PUSH_STATE_REVERSE:
+      if ((uint32_t)(now_tick - push_phase_started_tick) < PUSH_REVERSE_TIME_MS) {
+        return;
+      }
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
+      push_state = DC_MOTOR_PUSH_STATE_IDLE;
+      break;
+
+    default:
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
+      push_requested = false;
+      push_state = DC_MOTOR_PUSH_STATE_IDLE;
+      break;
+  }
+}
+
+void dc_motor_push(void) {
+  if (htim_motor == NULL) {
+    return;
+  }
+
+  if (push_state == DC_MOTOR_PUSH_STATE_IDLE) {
+    push_requested = true;
+  }
+}
+
+bool dc_motor_push_is_active(void) {
+  return push_requested || (push_state != DC_MOTOR_PUSH_STATE_IDLE);
 }
