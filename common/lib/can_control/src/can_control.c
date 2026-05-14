@@ -1,11 +1,11 @@
 /* CAN control implementation */
 #include "modules/can_control.h"
+#include "debug_log.h"
 
 #if BOARD_CAN_CONTROL_ENABLE_RX
 #include "modules/dc_motor.h"
 #include "modules/led.h"
 #include "modules/servo.h"
-#include <stdio.h>
 #endif
 
 #ifndef BOARD_CAN_RX_DC_SPEED
@@ -227,13 +227,13 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
     int16_t data = (int16_t)(rx_data[4]<<8 | rx_data[5]);
     if (data < 0) {
       servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
-      printf("SERVO OPEN\n");
+      LOG("SERVO OPEN\n");
     } else if (data == 0) {
       servo_control(SERVO_DIR_STOP, SERVO_MODE_NORMAL);
-      printf("SERVO STOP\n");
+      LOG("SERVO STOP\n");
     } else {
       servo_control(SERVO_DIR_CLOSE, SERVO_MODE_NORMAL);
-      printf("SERVO CLOSE\n");
+      LOG("SERVO CLOSE\n");
     }
   }
   led_set(LED_COLOR_YELLOW, LED_STATE_OFF);

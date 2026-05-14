@@ -1,10 +1,9 @@
 /* Shared encoder polling and CAN publishing loop. */
 #include "modules/encoder_can_publisher.h"
 #include "board_config.h"
+#include "debug_log.h"
 #include "modules/can_control.h"
 #include "modules/encoder.h"
-
-#include <stdio.h>
 
 #ifndef BOARD_ENCODER_CAN_SEND_INTERVAL_MS
 #define BOARD_ENCODER_CAN_SEND_INTERVAL_MS 20U
@@ -84,7 +83,7 @@ void encoder_can_publisher_process(void)
   uint16_t position = 0;
 
   if (encoder_get_position(&position)) {
-    printf("Encoder Data: %u\n", position);
+    LOG("Encoder Data: %u\n", position);
     encoder_last_position = position;
     encoder_has_last_position = true;
   }
