@@ -83,7 +83,7 @@ void can_control_process_tx(void) {
   tx_header.TransmitGlobalTime = DISABLE;
 
   while ((HAL_CAN_GetTxMailboxesFreeLevel(hcan_ctrl) > 0U) && can_tx_queue_peek(&position)) {
-    uint8_t tx_data[2];
+    uint8_t tx_data[8] = {0};
     uint32_t tx_mailbox;
 
     tx_data[0] = (uint8_t)(position >> 8);
