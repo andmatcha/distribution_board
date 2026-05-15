@@ -18,9 +18,12 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "fatfs.h"
+#include "usb_host.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "app.h"
 
 /* USER CODE END Includes */
 
@@ -47,8 +50,6 @@ TIM_HandleTypeDef htim13;
 
 UART_HandleTypeDef huart2;
 
-HCD_HandleTypeDef hhcd_USB_OTG_FS;
-
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -59,8 +60,8 @@ static void MX_GPIO_Init(void);
 static void MX_TIM13_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_CAN2_Init(void);
-static void MX_USB_OTG_FS_HCD_Init(void);
 static void MX_TIM3_Init(void);
+void MX_USB_HOST_Process(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -102,9 +103,11 @@ int main(void)
   MX_TIM13_Init();
   MX_USART2_UART_Init();
   MX_CAN2_Init();
-  MX_USB_OTG_FS_HCD_Init();
   MX_TIM3_Init();
+  MX_USB_HOST_Init();
+  MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
+  init();
 
   /* USER CODE END 2 */
 
@@ -113,8 +116,10 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+    MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
+    poll();
   }
   /* USER CODE END 3 */
 }
@@ -316,37 +321,6 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
-  * @brief USB_OTG_FS Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USB_OTG_FS_HCD_Init(void)
-{
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 0 */
-
-  /* USER CODE END USB_OTG_FS_Init 0 */
-
-  /* USER CODE BEGIN USB_OTG_FS_Init 1 */
-
-  /* USER CODE END USB_OTG_FS_Init 1 */
-  hhcd_USB_OTG_FS.Instance = USB_OTG_FS;
-  hhcd_USB_OTG_FS.Init.Host_channels = 12;
-  hhcd_USB_OTG_FS.Init.speed = HCD_SPEED_FULL;
-  hhcd_USB_OTG_FS.Init.dma_enable = DISABLE;
-  hhcd_USB_OTG_FS.Init.phy_itface = HCD_PHY_EMBEDDED;
-  hhcd_USB_OTG_FS.Init.Sof_enable = DISABLE;
-  if (HAL_HCD_Init(&hhcd_USB_OTG_FS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USB_OTG_FS_Init 2 */
-
-  /* USER CODE END USB_OTG_FS_Init 2 */
 
 }
 
