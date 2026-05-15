@@ -5,6 +5,7 @@
 typedef enum {
   DC_MOTOR_PUSH_STATE_IDLE = 0,
   DC_MOTOR_PUSH_STATE_FORWARD,
+  DC_MOTOR_PUSH_STATE_COAST,
   DC_MOTOR_PUSH_STATE_REVERSE
 } DcMotorPushState;
 
@@ -39,6 +40,7 @@ static uint32_t push_phase_started_tick = 0U;
 #define TIM3_PERIOD  19999
 #define PUSH_SPEED_PERCENT 100U
 #define PUSH_FORWARD_TIME_MS 2000U
+#define PUSH_COAST_TIME_MS 100U
 #define PUSH_REVERSE_TIME_MS 2000U
 
 void dc_motor_init(TIM_HandleTypeDef *htim) {
@@ -155,6 +157,15 @@ void dc_motor_process(void) {
 
     case DC_MOTOR_PUSH_STATE_FORWARD:
       if ((uint32_t)(now_tick - push_phase_started_tick) < PUSH_FORWARD_TIME_MS) {
+        return;
+      }
+      push_phase_started_tick = now_tick;
+      push_state = DC_MOTOR_PUSH_STATE_COAST;
+      dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0);
+      break;
+
+    case DC_MOTOR_PUSH_STATE_COAST:
+      if ((uint32_t)(now_tick - push_phase_started_tick) < PUSH_COAST_TIME_MS) {
         return;
       }
       push_phase_started_tick = now_tick;

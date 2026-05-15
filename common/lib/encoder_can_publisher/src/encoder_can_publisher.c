@@ -13,6 +13,14 @@
 #define BOARD_ENCODER_REQUEST_TIMEOUT_MS 10U
 #endif
 
+#ifndef BOARD_ENCODER_DEBUG_LOG_ENABLED
+#define BOARD_ENCODER_DEBUG_LOG_ENABLED 0
+#endif
+
+#ifndef BOARD_ENCODER_DEBUG_LOG_INTERVAL_MS
+#define BOARD_ENCODER_DEBUG_LOG_INTERVAL_MS 100U
+#endif
+
 static UART_HandleTypeDef *encoder_can_publisher_huart = NULL;
 static volatile bool encoder_request_pending = false;
 static volatile bool encoder_request_in_flight = false;
@@ -21,6 +29,9 @@ static bool encoder_has_last_position = false;
 static uint16_t encoder_last_position = 0U;
 static uint32_t encoder_last_can_queue_tick = 0U;
 static bool encoder_has_sent_can = false;
+#if BOARD_ENCODER_DEBUG_LOG_ENABLED
+static uint32_t encoder_last_log_tick = 0U;
+#endif
 
 static void start_encoder_request(void)
 {
@@ -75,6 +86,9 @@ void encoder_can_publisher_init(UART_HandleTypeDef *huart)
   encoder_has_last_position = false;
   encoder_has_sent_can = false;
   encoder_last_can_queue_tick = 0U;
+#if BOARD_ENCODER_DEBUG_LOG_ENABLED
+  encoder_last_log_tick = 0U;
+#endif
   start_encoder_request();
 }
 
@@ -83,7 +97,13 @@ void encoder_can_publisher_process(void)
   uint16_t position = 0;
 
   if (encoder_get_position(&position)) {
-    LOG("Encoder Data: %u\n", position);
+#if BOARD_ENCODER_DEBUG_LOG_ENABLED
+    uint32_t now_tick = HAL_GetTick();
+    if ((uint32_t)(now_tick - encoder_last_log_tick) >= BOARD_ENCODER_DEBUG_LOG_INTERVAL_MS) {
+      LOG("Encoder Data: %u\n", position);
+      encoder_last_log_tick = now_tick;
+    }
+#endif
     encoder_last_position = position;
     encoder_has_last_position = true;
   }

@@ -7,28 +7,36 @@
 #include <sys/errno.h>
 #include <unistd.h>
 
-static inline void itm_write_blocking(char ch)
+#define ITM_WRITE_SPIN_LIMIT 10000U
+
+static inline int itm_write_with_timeout(char ch)
 {
     if ((ITM->TCR & ITM_TCR_ITMENA_Msk) == 0U) {
-        return;
+        return 1;
     }
 
     if ((ITM->TER & 1U) == 0U) {
-        return;
+        return 1;
     }
 
-    while (ITM->PORT[0].u32 == 0U) {
+    for (uint32_t spin_count = 0U; ITM->PORT[0].u32 == 0U; spin_count++) {
+        if (spin_count >= ITM_WRITE_SPIN_LIMIT) {
+            return 0;
+        }
         __NOP();
     }
 
-    ITM_SendChar((uint32_t)ch);
+    ITM->PORT[0].u8 = (uint8_t)ch;
+    return 1;
 }
 
 int _write(int file, char *ptr, int len)
 {
     if (file == STDOUT_FILENO || file == STDERR_FILENO) {
         for (int i = 0; i < len; i++) {
-            itm_write_blocking(ptr[i]);
+            if (!itm_write_with_timeout(ptr[i])) {
+                break;
+            }
         }
 
         return len;
