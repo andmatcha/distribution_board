@@ -6,18 +6,14 @@
 #include <string.h>
 
 #include "fatfs.h"
-#include "modules/position_parser.h"
 #include "usb_host.h"
 
-#define USB_STORAGE_READER_BUFFER_SIZE 1024U
 #define USB_STORAGE_READER_PATH_BUFFER_SIZE 256U
 #define USB_STORAGE_READER_MAX_SEARCH_DEPTH 4U
 
 extern ApplicationTypeDef Appli_state;
 
 static uint8_t storage_ready_reported;
-static uint32_t next_text_file_index;
-static char read_buffer[USB_STORAGE_READER_BUFFER_SIZE];
 
 static const char *fatfs_result_name(FRESULT result)
 {
@@ -130,17 +126,6 @@ static uint8_t has_text_file_extension(const char *name)
     return strings_equal_ignore_ascii_case(dot, ".txt");
 }
 
-static FRESULT copy_path(char *destination, size_t destination_size, const char *source)
-{
-    int written = snprintf(destination, destination_size, "%s", source);
-
-    if ((written < 0) || ((size_t)written >= destination_size)) {
-        return FR_INVALID_NAME;
-    }
-
-    return FR_OK;
-}
-
 static FRESULT join_path(char *path, size_t path_size, const char *directory, const char *name)
 {
     const size_t directory_length = strlen(directory);
@@ -166,15 +151,71 @@ static FRESULT join_path(char *path, size_t path_size, const char *directory, co
     return FR_OK;
 }
 
-static FRESULT count_text_files_recursive(const char *directory_path,
-                                          unsigned int depth,
-                                          uint32_t *file_count)
+static uint8_t file_matches_filter(const char *name, uint8_t accept_any_extension)
+{
+    if (accept_any_extension != 0U) {
+        return 1U;
+    }
+
+    return has_text_file_extension(name);
+}
+
+static FRESULT read_regular_file(const char *file_path,
+                                 uint8_t *buffer,
+                                 size_t buffer_size,
+                                 size_t *bytes_read)
+{
+    FIL file;
+    FRESULT result;
+    const size_t start_offset = *bytes_read;
+
+    result = f_open(&file, file_path, FA_READ);
+    if (result != FR_OK) {
+        print_fatfs_error("open", result);
+        return FR_OK;
+    }
+
+    while (*bytes_read < buffer_size) {
+        UINT bytes_read_this_time = 0U;
+        const size_t remaining = buffer_size - *bytes_read;
+
+        result = f_read(&file,
+                        &buffer[*bytes_read],
+                        (UINT)remaining,
+                        &bytes_read_this_time);
+        if (result != FR_OK) {
+            print_fatfs_error("read", result);
+            break;
+        }
+
+        if (bytes_read_this_time == 0U) {
+            break;
+        }
+
+        *bytes_read += bytes_read_this_time;
+    }
+
+    (void)f_close(&file);
+
+    printf("[usb-storage] loaded %lu bytes from %s\r\n",
+           (unsigned long)(*bytes_read - start_offset),
+           file_path);
+    return FR_OK;
+}
+
+static FRESULT read_matching_files_recursive(const char *directory_path,
+                                             unsigned int depth,
+                                             uint8_t accept_any_extension,
+                                             uint8_t *buffer,
+                                             size_t buffer_size,
+                                             size_t *bytes_read,
+                                             uint32_t *matched_file_count)
 {
     DIR directory;
     FILINFO file_info;
     FRESULT result;
 
-    if (depth > USB_STORAGE_READER_MAX_SEARCH_DEPTH) {
+    if ((depth > USB_STORAGE_READER_MAX_SEARCH_DEPTH) || (*bytes_read >= buffer_size)) {
         return FR_OK;
     }
 
@@ -205,136 +246,46 @@ static FRESULT count_text_files_recursive(const char *directory_path,
         }
 
         if ((file_info.fattrib & AM_DIR) != 0U) {
-            result = count_text_files_recursive(entry_path, depth + 1U, file_count);
+            result = read_matching_files_recursive(entry_path,
+                                                   depth + 1U,
+                                                   accept_any_extension,
+                                                   buffer,
+                                                   buffer_size,
+                                                   bytes_read,
+                                                   matched_file_count);
             if (result != FR_OK) {
                 break;
             }
-            continue;
-        }
 
-        if (has_text_file_extension(file_info.fname) != 0U) {
-            (*file_count)++;
-        }
-    }
-
-    (void)f_closedir(&directory);
-    return result;
-}
-
-static FRESULT find_text_file_by_index_recursive(const char *directory_path,
-                                                 unsigned int depth,
-                                                 uint32_t target_index,
-                                                 uint32_t *seen_count,
-                                                 char *found_path,
-                                                 size_t found_path_size)
-{
-    DIR directory;
-    FILINFO file_info;
-    FRESULT result;
-
-    if (depth > USB_STORAGE_READER_MAX_SEARCH_DEPTH) {
-        return FR_NO_FILE;
-    }
-
-    result = f_opendir(&directory, directory_path);
-    if (result != FR_OK) {
-        return result;
-    }
-
-    for (;;) {
-        char entry_path[USB_STORAGE_READER_PATH_BUFFER_SIZE];
-
-        result = f_readdir(&directory, &file_info);
-        if (result != FR_OK) {
-            break;
-        }
-
-        if (file_info.fname[0] == '\0') {
-            result = FR_NO_FILE;
-            break;
-        }
-
-        if (is_current_or_parent_directory(file_info.fname) != 0U) {
-            continue;
-        }
-
-        result = join_path(entry_path, sizeof(entry_path), directory_path, file_info.fname);
-        if (result != FR_OK) {
-            break;
-        }
-
-        if ((file_info.fattrib & AM_DIR) != 0U) {
-            result = find_text_file_by_index_recursive(entry_path,
-                                                       depth + 1U,
-                                                       target_index,
-                                                       seen_count,
-                                                       found_path,
-                                                       found_path_size);
-            if (result == FR_OK) {
-                break;
-            }
-
-            if (result != FR_NO_FILE) {
+            if (*bytes_read >= buffer_size) {
                 break;
             }
 
             continue;
         }
 
-        if (has_text_file_extension(file_info.fname) == 0U) {
+        if (file_matches_filter(file_info.fname, accept_any_extension) == 0U) {
             continue;
         }
 
-        if (*seen_count == target_index) {
-            result = copy_path(found_path, found_path_size, entry_path);
+        (*matched_file_count)++;
+        result = read_regular_file(entry_path, buffer, buffer_size, bytes_read);
+        if (result != FR_OK) {
             break;
         }
 
-        (*seen_count)++;
+        if (*bytes_read >= buffer_size) {
+            break;
+        }
     }
 
     (void)f_closedir(&directory);
     return result;
-}
-
-static uint8_t parse_position_file(const char *file_path, int32_t *latitude_e7, int32_t *longitude_e7)
-{
-    FIL file;
-    UINT bytes_read = 0U;
-    FRESULT result;
-
-    result = f_open(&file, file_path, FA_READ);
-    if (result != FR_OK) {
-        print_fatfs_error("open", result);
-        return 0U;
-    }
-
-    result = f_read(&file, read_buffer, sizeof(read_buffer) - 1U, &bytes_read);
-    (void)f_close(&file);
-
-    if (result != FR_OK) {
-        print_fatfs_error("read", result);
-        return 0U;
-    }
-
-    read_buffer[bytes_read] = '\0';
-
-    if (position_parser_parse(read_buffer, latitude_e7, longitude_e7) == 0U) {
-        printf("[usb-storage] no supported coordinate format in %s\r\n", file_path);
-        return 0U;
-    }
-
-    printf("[usb-storage] parsed %s: lat=%ld lon=%ld\r\n",
-           file_path,
-           (long)*latitude_e7,
-           (long)*longitude_e7);
-    return 1U;
 }
 
 void usb_storage_reader_init(void)
 {
     storage_ready_reported = 0U;
-    next_text_file_index = 0U;
     printf("[usb-storage] waiting for USB mass storage...\r\n");
 }
 
@@ -350,24 +301,23 @@ void usb_storage_reader_poll(void)
 
     if ((storage_ready_reported != 0U) && (Appli_state == APPLICATION_DISCONNECT)) {
         storage_ready_reported = 0U;
-        next_text_file_index = 0U;
         printf("[usb-storage] USB mass storage disconnected\r\n");
     }
 }
 
-uint8_t usb_storage_reader_read_next_position(int32_t *latitude_e7, int32_t *longitude_e7)
+uint8_t usb_storage_reader_read_data(uint8_t *buffer, size_t buffer_size, size_t *bytes_read)
 {
     FRESULT result;
-    uint32_t file_count = 0U;
-    uint32_t offset;
-    uint32_t start_index;
+    uint32_t matched_file_count = 0U;
 
-    if ((latitude_e7 == NULL) || (longitude_e7 == NULL)) {
+    if ((buffer == NULL) || (bytes_read == NULL) || (buffer_size == 0U)) {
         return 0U;
     }
 
+    *bytes_read = 0U;
+
     if (Appli_state != APPLICATION_READY) {
-        printf("[usb-storage] coordinate request ignored; USB mass storage is not ready\r\n");
+        printf("[usb-storage] read request ignored; USB mass storage is not ready\r\n");
         return 0U;
     }
 
@@ -377,61 +327,58 @@ uint8_t usb_storage_reader_read_next_position(int32_t *latitude_e7, int32_t *lon
         return 0U;
     }
 
-    result = count_text_files_recursive(USBHPath, 0U, &file_count);
+    result = read_matching_files_recursive(USBHPath,
+                                           0U,
+                                           0U,
+                                           buffer,
+                                           buffer_size,
+                                           bytes_read,
+                                           &matched_file_count);
     if (result != FR_OK) {
         print_fatfs_error("scan", result);
         (void)f_mount(NULL, USBHPath, 0U);
         return 0U;
     }
 
-    if (file_count == 0U) {
-        printf("[usb-storage] no .txt files found under %s\r\n", USBHPath);
-        (void)f_mount(NULL, USBHPath, 0U);
-        return 0U;
-    }
-
-    start_index = next_text_file_index % file_count;
-
-    for (offset = 0U; offset < file_count; offset++) {
-        char file_path[USB_STORAGE_READER_PATH_BUFFER_SIZE];
-        uint32_t seen_count = 0U;
-        uint32_t target_index = start_index + offset;
-
-        if (target_index >= file_count) {
-            target_index -= file_count;
-        }
-
-        result = find_text_file_by_index_recursive(USBHPath,
-                                                   0U,
-                                                   target_index,
-                                                   &seen_count,
-                                                   file_path,
-                                                   sizeof(file_path));
+    if (matched_file_count == 0U) {
+        printf("[usb-storage] no .txt files found under %s; accepting all file extensions\r\n",
+               USBHPath);
+        result = read_matching_files_recursive(USBHPath,
+                                               0U,
+                                               1U,
+                                               buffer,
+                                               buffer_size,
+                                               bytes_read,
+                                               &matched_file_count);
         if (result != FR_OK) {
-            if (result != FR_NO_FILE) {
-                print_fatfs_error("find text file", result);
-                break;
-            }
-
-            continue;
-        }
-
-        if (parse_position_file(file_path, latitude_e7, longitude_e7) != 0U) {
-            next_text_file_index = target_index + 1U;
-            if (next_text_file_index >= file_count) {
-                next_text_file_index = 0U;
-            }
-
+            print_fatfs_error("scan", result);
             (void)f_mount(NULL, USBHPath, 0U);
-            return 1U;
+            return 0U;
         }
-    }
-
-    next_text_file_index = start_index + 1U;
-    if (next_text_file_index >= file_count) {
-        next_text_file_index = 0U;
     }
 
     (void)f_mount(NULL, USBHPath, 0U);
-    return 0U;
+
+    if (matched_file_count == 0U) {
+        printf("[usb-storage] no files found under %s\r\n", USBHPath);
+        return 0U;
+    }
+
+    if (*bytes_read == 0U) {
+        printf("[usb-storage] no file data loaded from %lu matched file(s)\r\n",
+               (unsigned long)matched_file_count);
+        return 0U;
+    }
+
+    if (*bytes_read >= buffer_size) {
+        printf("[usb-storage] loaded maximum %lu bytes from %lu matched file(s)\r\n",
+               (unsigned long)*bytes_read,
+               (unsigned long)matched_file_count);
+    } else {
+        printf("[usb-storage] loaded %lu bytes from %lu matched file(s)\r\n",
+               (unsigned long)*bytes_read,
+               (unsigned long)matched_file_count);
+    }
+
+    return 1U;
 }
