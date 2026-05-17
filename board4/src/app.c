@@ -1,14 +1,12 @@
 #include "app.h"
 
 #include "modules/can_control.h"
-#include "modules/dc_motor.h"
 #include "modules/encoder_can_publisher.h"
 #include "modules/led.h"
 #include "modules/servo.h"
 
 extern CAN_HandleTypeDef hcan;
 extern TIM_HandleTypeDef htim2;
-extern TIM_HandleTypeDef htim3;
 extern UART_HandleTypeDef huart1;
 
 void init(void)
@@ -18,7 +16,6 @@ void init(void)
   led_set(LED_COLOR_GREEN, LED_STATE_ON);
 
   servo_init(&htim2);
-  dc_motor_init(&htim3);
   can_control_init(&hcan);
   encoder_can_publisher_init(&huart1);
 }
@@ -26,7 +23,6 @@ void init(void)
 void poll(void)
 {
   can_control_process_rx();
-  dc_motor_process();
   encoder_can_publisher_process();
 }
 

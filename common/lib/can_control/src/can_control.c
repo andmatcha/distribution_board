@@ -3,9 +3,13 @@
 #include "debug_log.h"
 
 #if BOARD_CAN_CONTROL_ENABLE_RX
-#include "modules/dc_motor.h"
 #include "modules/led.h"
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX
+#include "modules/dc_motor.h"
+#endif
+#if BOARD_CAN_CONTROL_ENABLE_SERVO_RX
 #include "modules/servo.h"
+#endif
 #endif
 
 #ifndef BOARD_CAN_RX_DC_SPEED
@@ -19,21 +23,29 @@
 
 #if BOARD_CAN_CONTROL_ENABLE_RX
 typedef enum {
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX
   CAN_RX_COMMAND_DC = 0,
+#endif
+#if BOARD_CAN_CONTROL_ENABLE_SERVO_RX
   CAN_RX_COMMAND_SERVO
+#endif
 } CanRxCommandType;
 
 typedef struct {
   CanRxCommandType type;
   union {
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX
     struct {
       bool push_motor1;
       bool motor2_forward;
       bool motor2_reverse;
     } dc;
+#endif
+#if BOARD_CAN_CONTROL_ENABLE_SERVO_RX
     struct {
       int16_t data;
     } servo;
+#endif
   } payload;
 } CanRxCommand;
 #endif
@@ -140,12 +152,25 @@ void can_control_process_tx(void) {
 static void can_filter_config(void) {
   CAN_FilterTypeDef filter_config;
   filter_config.FilterBank = 0;
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX && BOARD_CAN_CONTROL_ENABLE_SERVO_RX
   filter_config.FilterMode = CAN_FILTERMODE_IDLIST;
   filter_config.FilterScale = CAN_FILTERSCALE_16BIT;
   filter_config.FilterIdHigh = (CAN_ID_DC << 5);
   filter_config.FilterIdLow = (CAN_ID_SERVO << 5);
   filter_config.FilterMaskIdHigh = 0;
   filter_config.FilterMaskIdLow = 0;
+#else
+  filter_config.FilterMode = CAN_FILTERMODE_IDMASK;
+  filter_config.FilterScale = CAN_FILTERSCALE_32BIT;
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX
+  filter_config.FilterIdHigh = (CAN_ID_DC << 5);
+#else
+  filter_config.FilterIdHigh = (CAN_ID_SERVO << 5);
+#endif
+  filter_config.FilterIdLow = 0;
+  filter_config.FilterMaskIdHigh = (0x7FFU << 5);
+  filter_config.FilterMaskIdLow = 0;
+#endif
   filter_config.FilterFIFOAssignment = CAN_RX_FIFO0;
   filter_config.FilterActivation = ENABLE;
   filter_config.SlaveStartFilterBank = 14;
@@ -277,6 +302,7 @@ static void can_control_process_rx_command(const CanRxCommand *command) {
     return;
   }
 
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX
   if (command->type == CAN_RX_COMMAND_DC) {
     if (command->payload.dc.push_motor1) {
       dc_motor_push();
@@ -291,7 +317,10 @@ static void can_control_process_rx_command(const CanRxCommand *command) {
     } else {
       dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_STOP, 0);
     }
-  } else if (command->type == CAN_RX_COMMAND_SERVO) {
+  }
+#endif
+#if BOARD_CAN_CONTROL_ENABLE_SERVO_RX
+  if (command->type == CAN_RX_COMMAND_SERVO) {
     if (command->payload.servo.data < 0) {
       servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
       LOG("SERVO OPEN\n");
@@ -303,6 +332,7 @@ static void can_control_process_rx_command(const CanRxCommand *command) {
       LOG("SERVO CLOSE\n");
     }
   }
+#endif
 }
 
 // CAN receive callback
@@ -317,6 +347,7 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
   }
 
   // Branch by received ID.
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX
   if (rx_header.StdId == CAN_ID_DC) {
     // DC motor command (0x208)
     if (rx_header.DLC < 5) {
@@ -328,7 +359,10 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
     command.payload.dc.motor2_forward = (rx_data[3] == 1U);
     command.payload.dc.motor2_reverse = (rx_data[4] == 1U);
     (void)can_rx_command_queue_push(&command);
-  } else if (rx_header.StdId == CAN_ID_SERVO) {
+  }
+#endif
+#if BOARD_CAN_CONTROL_ENABLE_SERVO_RX
+  if (rx_header.StdId == CAN_ID_SERVO) {
     // Servo command (0x1FF)
     if (rx_header.DLC < 6) {
       return;
@@ -338,5 +372,6 @@ void can_control_rx_callback(CAN_HandleTypeDef *hcan) {
     command.payload.servo.data = (int16_t)(((uint16_t)rx_data[4] << 8) | rx_data[5]);
     (void)can_rx_command_queue_push(&command);
   }
+#endif
 }
 #endif

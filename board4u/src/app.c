@@ -4,15 +4,19 @@
 #include <stdio.h>
 
 #include "main.h"
+#include "modules/dc_motor.h"
 #include "modules/usb_storage_reader.h"
 
 #define CAN_COORDINATE_REQUEST_ID 0x208U
 #define CAN_COORDINATE_RESPONSE_ID 0x209U
 #define CAN_COORDINATE_REQUEST_INDEX 2U
+#define CAN_DC_MOTOR_COMMAND_MIN_DLC 5U
+#define CAN_DC_MOTOR_SPEED_PERCENT 100U
 #define CAN2_FILTER_BANK 14U
 #define CAN2_SLAVE_START_FILTER_BANK 14U
 
 extern CAN_HandleTypeDef hcan2;
+extern TIM_HandleTypeDef htim3;
 
 static void store_i32_le(uint8_t *destination, int32_t value)
 {
@@ -89,6 +93,30 @@ static void can_handle_coordinate_request(const CAN_RxHeaderTypeDef *rx_header, 
     read_and_send_position("can");
 }
 
+static void can_handle_dc_motor_command(const CAN_RxHeaderTypeDef *rx_header, const uint8_t *rx_data)
+{
+    if ((rx_header->IDE != CAN_ID_STD) ||
+        (rx_header->RTR != CAN_RTR_DATA) ||
+        (rx_header->StdId != CAN_COORDINATE_REQUEST_ID) ||
+        (rx_header->DLC < CAN_DC_MOTOR_COMMAND_MIN_DLC)) {
+        return;
+    }
+
+    if (rx_data[0] == 1U) {
+        dc_motor_push();
+    } else if (!dc_motor_push_is_active()) {
+        dc_motor_set(DC_MOTOR_1, DC_MOTOR_DIR_STOP, 0U);
+    }
+
+    if (rx_data[3] == 1U) {
+        dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_FORWARD, CAN_DC_MOTOR_SPEED_PERCENT);
+    } else if (rx_data[4] == 1U) {
+        dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_REVERSE, CAN_DC_MOTOR_SPEED_PERCENT);
+    } else {
+        dc_motor_set(DC_MOTOR_2, DC_MOTOR_DIR_STOP, 0U);
+    }
+}
+
 static void can_poll(void)
 {
     while (HAL_CAN_GetRxFifoFillLevel(&hcan2, CAN_RX_FIFO0) > 0U) {
@@ -100,6 +128,8 @@ static void can_poll(void)
             return;
         }
 
+        can_handle_dc_motor_command(&rx_header, rx_data);
+        dc_motor_process();
         can_handle_coordinate_request(&rx_header, rx_data);
     }
 }
@@ -129,13 +159,14 @@ static void can_init(void)
         Error_Handler();
     }
 
-    printf("[can] listening for 0x%03lX, data[%u] == 1\r\n",
+    printf("[can] listening for 0x%03lX coordinate request data[%u] == 1 and DC motor commands\r\n",
            (unsigned long)CAN_COORDINATE_REQUEST_ID,
            (unsigned int)CAN_COORDINATE_REQUEST_INDEX);
 }
 
 void init(void)
 {
+    dc_motor_init(&htim3);
     usb_storage_reader_init();
     can_init();
 }
@@ -144,4 +175,5 @@ void poll(void)
 {
     usb_storage_reader_poll();
     can_poll();
+    dc_motor_process();
 }

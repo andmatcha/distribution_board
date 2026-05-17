@@ -19,14 +19,30 @@
 #define CAN_ID_ENCODER BOARD_CAN_ID_ENCODER
 
 #if BOARD_CAN_CONTROL_ENABLE_RX
-#ifndef BOARD_CAN_ID_DC
-#error "BOARD_CAN_ID_DC must be defined when BOARD_CAN_CONTROL_ENABLE_RX is enabled"
+#ifndef BOARD_CAN_CONTROL_ENABLE_DC_RX
+#define BOARD_CAN_CONTROL_ENABLE_DC_RX 1
 #endif
-#ifndef BOARD_CAN_ID_SERVO
-#error "BOARD_CAN_ID_SERVO must be defined when BOARD_CAN_CONTROL_ENABLE_RX is enabled"
+#ifndef BOARD_CAN_CONTROL_ENABLE_SERVO_RX
+#define BOARD_CAN_CONTROL_ENABLE_SERVO_RX 1
+#endif
+
+#if !BOARD_CAN_CONTROL_ENABLE_DC_RX && !BOARD_CAN_CONTROL_ENABLE_SERVO_RX
+#error "At least one CAN RX command type must be enabled when BOARD_CAN_CONTROL_ENABLE_RX is enabled"
+#endif
+
+#if BOARD_CAN_CONTROL_ENABLE_DC_RX
+#ifndef BOARD_CAN_ID_DC
+#error "BOARD_CAN_ID_DC must be defined when BOARD_CAN_CONTROL_ENABLE_DC_RX is enabled"
 #endif
 #define CAN_ID_DC BOARD_CAN_ID_DC
+#endif
+
+#if BOARD_CAN_CONTROL_ENABLE_SERVO_RX
+#ifndef BOARD_CAN_ID_SERVO
+#error "BOARD_CAN_ID_SERVO must be defined when BOARD_CAN_CONTROL_ENABLE_SERVO_RX is enabled"
+#endif
 #define CAN_ID_SERVO BOARD_CAN_ID_SERVO
+#endif
 #endif
 
 /**

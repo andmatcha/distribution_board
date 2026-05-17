@@ -15,5 +15,5 @@ Shared libraries:
 
 - `led`: LED API used by board1-4.
 - `encoder`: single RS485 encoder API used by board2-4.
-- `can_control`: encoder CAN TX and optional board4 CAN RX.
+- `can_control`: encoder CAN TX and optional board-specific CAN RX command handling.
 - `encoder_can_publisher`: common encoder polling and CAN publish loop used by board2-4.
