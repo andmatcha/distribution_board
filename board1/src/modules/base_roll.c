@@ -1,10 +1,10 @@
 #include "modules/base_roll.h"
 
+#include "debug_log.h"
 #include "modules/base_can_scheduler.h"
 #include "modules/encoder.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 
 typedef struct
 {
@@ -55,7 +55,7 @@ static void base_roll_initialize_runtime(void)
     return;
   }
 
-  printf("Base Roll initialization complete.\n");
+  LOG("Base Roll initialization complete.\n");
 }
 
 static bool base_roll_read_position(uint16_t *position)
@@ -152,7 +152,7 @@ static void base_roll_publish_position(uint16_t position)
 
   if ((now_tick - base_roll_state.last_log_tick) >= BASE_ROLL_LOG_INTERVAL_MS) {
     base_roll_state.last_log_tick = now_tick;
-    printf("Base Roll Encoder: %u\n", position);
+    LOG("Base Roll Encoder: %u\n", position);
   }
 }
 

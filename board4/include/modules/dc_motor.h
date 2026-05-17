@@ -2,6 +2,7 @@
 #ifndef DC_MOTOR_H
 #define DC_MOTOR_H
 
+#include <stdbool.h>
 #include "stm32f1xx_hal.h"
 
 // モーター番号
@@ -33,9 +34,19 @@ void dc_motor_init(TIM_HandleTypeDef *htim);
 void dc_motor_set(DcMotorId motor_id, DcMotorDirection direction, uint8_t duty_percent);
 
 /**
- * @brief キーボードニョッキ動作 (出っ張る→引っ込む)
- * DC_MOTOR_1を使用して、正転→逆転の動作を自動で実行
+ * @brief キーボードニョッキ動作の周期処理
+ */
+void dc_motor_process(void);
+
+/**
+ * @brief キーボードニョッキ動作を開始要求する (非ブロッキング)
+ * DC_MOTOR_1を使用して、dc_motor_process() 内で正転→逆転の動作を実行
  */
 void dc_motor_push(void);
+
+/**
+ * @brief キーボードニョッキ動作が要求中または実行中かどうか
+ */
+bool dc_motor_push_is_active(void);
 
 #endif /* DC_MOTOR_H */
