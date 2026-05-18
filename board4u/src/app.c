@@ -48,6 +48,21 @@ static uint32_t usb_can_response_id_for_frame(uint16_t frame_count)
            ((uint32_t)frame_count % CAN_USB_DATA_RESPONSE_ID_COUNT);
 }
 
+static uint8_t usb_can_response_set_complete(uint16_t frame_count)
+{
+    return (uint8_t)((frame_count % CAN_USB_DATA_RESPONSE_ID_COUNT) == 0U);
+}
+
+static uint8_t usb_can_transfer_should_complete(void)
+{
+    if (usb_can_tx_frame_count >= USB_CAN_MAX_FRAME_COUNT) {
+        return 1U;
+    }
+
+    return (uint8_t)((usb_can_tx_offset >= usb_can_tx_bytes) &&
+                     (usb_can_response_set_complete(usb_can_tx_frame_count) != 0U));
+}
+
 static HAL_StatusTypeDef can_send_usb_data_chunk(uint32_t response_id,
                                                  const uint8_t *data,
                                                  size_t data_length)
@@ -116,6 +131,7 @@ static void usb_can_transfer_process(void)
     HAL_StatusTypeDef status;
     size_t remaining;
     size_t chunk_length;
+    const uint8_t *chunk_data;
     uint32_t response_id;
     const uint32_t now = HAL_GetTick();
 
@@ -158,8 +174,7 @@ static void usb_can_transfer_process(void)
         return;
     }
 
-    if ((usb_can_tx_offset >= usb_can_tx_bytes) ||
-        (usb_can_tx_frame_count >= USB_CAN_MAX_FRAME_COUNT)) {
+    if (usb_can_transfer_should_complete() != 0U) {
         usb_can_completion_pending = 1U;
         usb_can_tx_repeat_count = 0U;
         return;
@@ -169,11 +184,13 @@ static void usb_can_transfer_process(void)
         return;
     }
 
-    remaining = usb_can_tx_bytes - usb_can_tx_offset;
+    remaining = (usb_can_tx_offset < usb_can_tx_bytes) ?
+                (usb_can_tx_bytes - usb_can_tx_offset) : 0U;
     chunk_length = (remaining > USB_CAN_CHUNK_SIZE) ? USB_CAN_CHUNK_SIZE : remaining;
+    chunk_data = (chunk_length > 0U) ? &usb_can_tx_buffer[usb_can_tx_offset] : NULL;
     response_id = usb_can_response_id_for_frame(usb_can_tx_frame_count);
     status = can_send_usb_data_chunk(response_id,
-                                     &usb_can_tx_buffer[usb_can_tx_offset],
+                                     chunk_data,
                                      chunk_length);
     if (status != HAL_OK) {
         printf("[can] failed to send 0x%03lX USB chunk %u: HAL_Status=%d\r\n",
@@ -189,8 +206,7 @@ static void usb_can_transfer_process(void)
         usb_can_tx_offset += chunk_length;
         usb_can_tx_frame_count++;
 
-        if ((usb_can_tx_offset >= usb_can_tx_bytes) ||
-            (usb_can_tx_frame_count >= USB_CAN_MAX_FRAME_COUNT)) {
+        if (usb_can_transfer_should_complete() != 0U) {
             usb_can_completion_pending = 1U;
         }
     }
