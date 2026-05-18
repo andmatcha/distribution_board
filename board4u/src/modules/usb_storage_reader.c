@@ -63,6 +63,24 @@ static const char *fatfs_result_name(FRESULT result)
     }
 }
 
+static const char *fatfs_filesystem_type_name(BYTE fs_type)
+{
+    switch (fs_type) {
+    case FS_FAT12:
+        return "FAT12";
+    case FS_FAT16:
+        return "FAT16";
+    case FS_FAT32:
+        return "FAT32";
+#if _FS_EXFAT
+    case FS_EXFAT:
+        return "exFAT";
+#endif
+    default:
+        return "unknown";
+    }
+}
+
 static void print_fatfs_error(const char *operation, FRESULT result)
 {
     printf("[usb-storage] %s failed: FRESULT=%d (%s)\r\n",
@@ -185,7 +203,8 @@ static FRESULT read_regular_file(const char *file_path,
                         &bytes_read_this_time);
         if (result != FR_OK) {
             print_fatfs_error("read", result);
-            break;
+            (void)f_close(&file);
+            return result;
         }
 
         if (bytes_read_this_time == 0U) {
@@ -321,11 +340,21 @@ uint8_t usb_storage_reader_read_data(uint8_t *buffer, size_t buffer_size, size_t
         return 0U;
     }
 
+    if (retUSBH != 0U) {
+        printf("[usb-storage] FATFS USBH driver is not linked: retUSBH=%u\r\n",
+               (unsigned int)retUSBH);
+        return 0U;
+    }
+
     result = f_mount(&USBHFatFS, USBHPath, 1U);
     if (result != FR_OK) {
         print_fatfs_error("mount", result);
         return 0U;
     }
+
+    printf("[usb-storage] mounted %s filesystem at %s\r\n",
+           fatfs_filesystem_type_name(USBHFatFS.fs_type),
+           USBHPath);
 
     result = read_matching_files_recursive(USBHPath,
                                            0U,

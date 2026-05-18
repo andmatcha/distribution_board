@@ -21,6 +21,7 @@
 /* USER CODE END firstSection */
 
 /* Includes ------------------------------------------------------------------*/
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -30,7 +31,6 @@
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 
-#define USB_DEFAULT_BLOCK_SIZE 512
 #define USBH_DISK_MAX_LUNS 4U
 #define MBR_SIGNATURE_OFFSET 510U
 #define MBR_PARTITION_TABLE_OFFSET 446U
@@ -62,22 +62,22 @@ typedef struct
 } USBH_DiskContext;
 
 /* Private variables ---------------------------------------------------------*/
-extern USBH_HandleTypeDef  hUSB_Host;
+extern USBH_HandleTypeDef hUSB_Host;
 static USBH_DiskContext usbh_disk_context[USBH_DISK_MAX_LUNS];
 static uint8_t usbh_sector_buffer[_MAX_SS];
 static uint8_t usbh_partition_buffer[_MAX_SS];
 
 /* Private function prototypes -----------------------------------------------*/
-DSTATUS USBH_initialize (BYTE);
-DSTATUS USBH_status (BYTE);
-DRESULT USBH_read (BYTE, BYTE*, DWORD, UINT);
+DSTATUS USBH_initialize(BYTE);
+DSTATUS USBH_status(BYTE);
+DRESULT USBH_read(BYTE, BYTE*, DWORD, UINT);
 
 #if _USE_WRITE == 1
-  DRESULT USBH_write (BYTE, const BYTE*, DWORD, UINT);
+DRESULT USBH_write(BYTE, const BYTE*, DWORD, UINT);
 #endif /* _USE_WRITE == 1 */
 
 #if _USE_IOCTL == 1
-  DRESULT USBH_ioctl (BYTE, BYTE, void*);
+DRESULT USBH_ioctl(BYTE, BYTE, void*);
 #endif /* _USE_IOCTL == 1 */
 
 static uint16_t usbh_load_le16(const uint8_t *data);
@@ -92,15 +92,15 @@ static void usbh_reset_context(BYTE lun);
 static USBH_DiskContext *usbh_get_context(BYTE lun);
 static uint8_t usbh_try_map_gpt_partition(BYTE lun, USBH_DiskContext *context);
 
-const Diskio_drvTypeDef  USBH_Driver =
+const Diskio_drvTypeDef USBH_Driver =
 {
   USBH_initialize,
   USBH_status,
   USBH_read,
-#if  _USE_WRITE == 1
+#if _USE_WRITE == 1
   USBH_write,
 #endif /* _USE_WRITE == 1 */
-#if  _USE_IOCTL == 1
+#if _USE_IOCTL == 1
   USBH_ioctl,
 #endif /* _USE_IOCTL == 1 */
 };
@@ -363,7 +363,8 @@ static DSTATUS usbh_initialize_context(BYTE lun)
 
   context->initialized = 1U;
   context->sector_size = info.capacity.block_size;
-  context->physical_sector_count = info.capacity.block_nbr + 1U;
+  context->physical_sector_count =
+      (info.capacity.block_nbr == UINT32_MAX) ? UINT32_MAX : (info.capacity.block_nbr + 1U);
   context->logical_sector_count = context->physical_sector_count;
   context->partition_offset = 0U;
 
@@ -440,7 +441,7 @@ DRESULT USBH_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
 
   physical_sector += context->partition_offset;
 
-  if(USBH_MSC_Read(&hUSB_Host, lun, physical_sector, buff, count) == USBH_OK)
+  if (USBH_MSC_Read(&hUSB_Host, lun, physical_sector, buff, count) == USBH_OK)
   {
     res = RES_OK;
   }
@@ -453,7 +454,7 @@ DRESULT USBH_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
     case SCSI_ASC_LOGICAL_UNIT_NOT_READY:
     case SCSI_ASC_MEDIUM_NOT_PRESENT:
     case SCSI_ASC_NOT_READY_TO_READY_CHANGE:
-      USBH_ErrLog ("USB Disk is not ready!");
+      USBH_ErrLog("USB Disk is not ready!");
       res = RES_NOTRDY;
       break;
 
@@ -507,7 +508,7 @@ DRESULT USBH_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
 
   physical_sector += context->partition_offset;
 
-  if(USBH_MSC_Write(&hUSB_Host, lun, physical_sector, (BYTE *)buff, count) == USBH_OK)
+  if (USBH_MSC_Write(&hUSB_Host, lun, physical_sector, (BYTE *)buff, count) == USBH_OK)
   {
     res = RES_OK;
   }
@@ -553,8 +554,6 @@ DRESULT USBH_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
 #if _USE_IOCTL == 1
 DRESULT USBH_ioctl(BYTE lun, BYTE cmd, void *buff)
 {
-  DRESULT res = RES_ERROR;
-  MSC_LUNTypeDef info;
   USBH_DiskContext *context = usbh_get_context(lun);
 
   if ((context == NULL) || (context->initialized == 0U))
@@ -573,35 +572,24 @@ DRESULT USBH_ioctl(BYTE lun, BYTE cmd, void *buff)
 
   switch (cmd)
   {
-  /* Make sure that no pending write process */
   case CTRL_SYNC:
-    res = RES_OK;
-    break;
+    return RES_OK;
 
-  /* Get number of sectors on the disk (DWORD) */
-  case GET_SECTOR_COUNT :
+  case GET_SECTOR_COUNT:
     *(DWORD*)buff = context->logical_sector_count;
-    res = RES_OK;
-    break;
+    return RES_OK;
 
-  /* Get R/W sector size (WORD) */
-  case GET_SECTOR_SIZE :
+  case GET_SECTOR_SIZE:
     *(WORD*)buff = context->sector_size;
-    res = RES_OK;
-    break;
+    return RES_OK;
 
-    /* Get erase block size in unit of sector (DWORD) */
-  case GET_BLOCK_SIZE :
-    (void)info;
+  case GET_BLOCK_SIZE:
     *(DWORD*)buff = 1U;
-    res = RES_OK;
-    break;
+    return RES_OK;
 
   default:
-    res = RES_PARERR;
+    return RES_PARERR;
   }
-
-  return res;
 }
 #endif /* _USE_IOCTL == 1 */
 
