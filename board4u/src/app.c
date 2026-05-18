@@ -21,7 +21,8 @@
 #define USB_CAN_CHUNK_SIZE 8U
 #define USB_CAN_MAX_FRAME_COUNT 128U
 #define USB_CAN_MAX_DATA_BYTES (USB_CAN_CHUNK_SIZE * USB_CAN_MAX_FRAME_COUNT)
-#define USB_CAN_SEND_INTERVAL_MS 100U
+#define USB_CAN_SEND_INTERVAL_MS 10U
+#define USB_CAN_REPEAT_COUNT 10U
 
 extern CAN_HandleTypeDef hcan2;
 extern TIM_HandleTypeDef htim3;
@@ -30,6 +31,7 @@ static uint8_t usb_can_tx_buffer[USB_CAN_MAX_DATA_BYTES];
 static size_t usb_can_tx_bytes;
 static size_t usb_can_tx_offset;
 static uint16_t usb_can_tx_frame_count;
+static uint8_t usb_can_tx_repeat_count;
 static uint32_t usb_can_next_send_tick;
 static uint8_t usb_can_completion_pending;
 static uint8_t usb_can_tx_active;
@@ -95,15 +97,17 @@ static void usb_can_transfer_start(void)
     usb_can_tx_bytes = bytes_read;
     usb_can_tx_offset = 0U;
     usb_can_tx_frame_count = 0U;
+    usb_can_tx_repeat_count = 0U;
     usb_can_next_send_tick = HAL_GetTick();
     usb_can_completion_pending = 0U;
     usb_can_tx_active = 1U;
 
-    printf("[can] starting 0x%03lX-0x%03lX USB data transfer: %lu bytes, max %u frames\r\n",
+    printf("[can] starting 0x%03lX-0x%03lX USB data transfer: %lu bytes, max %u frames, %u repeats/frame\r\n",
            (unsigned long)CAN_USB_DATA_RESPONSE_BASE_ID,
            (unsigned long)(CAN_USB_DATA_RESPONSE_BASE_ID + CAN_USB_DATA_RESPONSE_ID_COUNT - 1U),
            (unsigned long)usb_can_tx_bytes,
-           (unsigned int)USB_CAN_MAX_FRAME_COUNT);
+           (unsigned int)USB_CAN_MAX_FRAME_COUNT,
+           (unsigned int)USB_CAN_REPEAT_COUNT);
 }
 
 static void usb_can_transfer_process(void)
@@ -135,20 +139,28 @@ static void usb_can_transfer_process(void)
             return;
         }
 
-        usb_can_completion_pending = 0U;
-        usb_can_tx_active = 0U;
-        printf("[can] completed 0x%03lX-0x%03lX USB data transfer: %lu bytes in %u frames; sent 0x%03lX\r\n",
-               (unsigned long)CAN_USB_DATA_RESPONSE_BASE_ID,
-               (unsigned long)(CAN_USB_DATA_RESPONSE_BASE_ID + CAN_USB_DATA_RESPONSE_ID_COUNT - 1U),
-               (unsigned long)usb_can_tx_offset,
-               (unsigned int)usb_can_tx_frame_count,
-               (unsigned long)CAN_USB_TRANSFER_COMPLETE_ID);
+        usb_can_tx_repeat_count++;
+        if (usb_can_tx_repeat_count >= USB_CAN_REPEAT_COUNT) {
+            usb_can_completion_pending = 0U;
+            usb_can_tx_active = 0U;
+            printf("[can] completed 0x%03lX-0x%03lX USB data transfer: %lu bytes in %u frames; sent 0x%03lX %u times\r\n",
+                   (unsigned long)CAN_USB_DATA_RESPONSE_BASE_ID,
+                   (unsigned long)(CAN_USB_DATA_RESPONSE_BASE_ID + CAN_USB_DATA_RESPONSE_ID_COUNT - 1U),
+                   (unsigned long)usb_can_tx_offset,
+                   (unsigned int)usb_can_tx_frame_count,
+                   (unsigned long)CAN_USB_TRANSFER_COMPLETE_ID,
+                   (unsigned int)USB_CAN_REPEAT_COUNT);
+            return;
+        }
+
+        usb_can_next_send_tick = now + USB_CAN_SEND_INTERVAL_MS;
         return;
     }
 
     if ((usb_can_tx_offset >= usb_can_tx_bytes) ||
         (usb_can_tx_frame_count >= USB_CAN_MAX_FRAME_COUNT)) {
         usb_can_completion_pending = 1U;
+        usb_can_tx_repeat_count = 0U;
         return;
     }
 
@@ -170,14 +182,16 @@ static void usb_can_transfer_process(void)
         return;
     }
 
-    usb_can_tx_offset += chunk_length;
-    usb_can_tx_frame_count++;
+    usb_can_tx_repeat_count++;
+    if (usb_can_tx_repeat_count >= USB_CAN_REPEAT_COUNT) {
+        usb_can_tx_repeat_count = 0U;
+        usb_can_tx_offset += chunk_length;
+        usb_can_tx_frame_count++;
 
-    if ((usb_can_tx_offset >= usb_can_tx_bytes) ||
-        (usb_can_tx_frame_count >= USB_CAN_MAX_FRAME_COUNT)) {
-        usb_can_completion_pending = 1U;
-        usb_can_next_send_tick = now;
-        return;
+        if ((usb_can_tx_offset >= usb_can_tx_bytes) ||
+            (usb_can_tx_frame_count >= USB_CAN_MAX_FRAME_COUNT)) {
+            usb_can_completion_pending = 1U;
+        }
     }
 
     usb_can_next_send_tick = now + USB_CAN_SEND_INTERVAL_MS;
