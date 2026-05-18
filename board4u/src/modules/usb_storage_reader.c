@@ -125,6 +125,15 @@ static uint8_t strings_equal_ignore_ascii_case(const char *left, const char *rig
     return (uint8_t)((*left == '\0') && (*right == '\0'));
 }
 
+static uint8_t is_metadata_file(const char *name)
+{
+    if ((name[0] == '.') && (name[1] == '_')) {
+        return 1U;
+    }
+
+    return strings_equal_ignore_ascii_case(name, ".DS_Store");
+}
+
 static uint8_t has_text_file_extension(const char *name)
 {
     const char *dot = NULL;
@@ -256,6 +265,10 @@ static FRESULT read_matching_files_recursive(const char *directory_path,
         }
 
         if (is_current_or_parent_directory(file_info.fname) != 0U) {
+            continue;
+        }
+
+        if (is_metadata_file(file_info.fname) != 0U) {
             continue;
         }
 
