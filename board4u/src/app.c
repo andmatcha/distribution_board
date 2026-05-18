@@ -35,6 +35,7 @@ static uint8_t usb_can_tx_repeat_count;
 static uint32_t usb_can_next_send_tick;
 static uint8_t usb_can_completion_pending;
 static uint8_t usb_can_tx_active;
+static uint8_t usb_can_reset_read_pending;
 
 static uint8_t tick_reached(uint32_t now, uint32_t target)
 {
@@ -212,6 +213,19 @@ static void can_handle_usb_read_request(const CAN_RxHeaderTypeDef *rx_header, co
     usb_can_transfer_start();
 }
 
+static void usb_can_process_reset_read_request(void)
+{
+    if ((usb_can_reset_read_pending == 0U) ||
+        (usb_can_tx_active != 0U) ||
+        (usb_storage_reader_is_ready() == 0U)) {
+        return;
+    }
+
+    usb_can_reset_read_pending = 0U;
+    printf("[can] reset-triggered read_usb request\r\n");
+    usb_can_transfer_start();
+}
+
 static void can_handle_dc_motor_command(const CAN_RxHeaderTypeDef *rx_header, const uint8_t *rx_data)
 {
     if ((rx_header->IDE != CAN_ID_STD) ||
@@ -288,11 +302,13 @@ void init(void)
     dc_motor_init(&htim3);
     usb_storage_reader_init();
     can_init();
+    usb_can_reset_read_pending = 1U;
 }
 
 void poll(void)
 {
     usb_storage_reader_poll();
+    usb_can_process_reset_read_request();
     can_poll();
     usb_can_transfer_process();
     dc_motor_process();

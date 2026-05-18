@@ -324,6 +324,11 @@ void usb_storage_reader_poll(void)
     }
 }
 
+uint8_t usb_storage_reader_is_ready(void)
+{
+    return (uint8_t)(Appli_state == APPLICATION_READY);
+}
+
 uint8_t usb_storage_reader_read_data(uint8_t *buffer, size_t buffer_size, size_t *bytes_read)
 {
     FRESULT result;
