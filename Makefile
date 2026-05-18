@@ -15,6 +15,7 @@ BOARD2_DEBUG_ENV := genericSTM32F103TB_debug
 BOARD3_DEBUG_ENV := genericSTM32F103TB_debug
 BOARD4_DEBUG_ENV := genericSTM32F103TB_debug
 BOARD4U_DEBUG_ENV := nucleo_f446re_debug
+MONITOR_BOARD ?= $(if $(BOARD),$(BOARD),board4)
 
 .PHONY: help board1 board2 board3 board4 board4u board1-debug board2-debug board3-debug board4-debug board4u-debug build-board1 build-board2 build-board3 build-board4 build-board4u build-all upload-board1 upload-board2 upload-board3 upload-board4 upload-board4u upload-board1-debug upload-board2-debug upload-board3-debug upload-board4-debug upload-board4u-debug list info monitor monitor-board1 monitor-board2 monitor-board3 monitor-board4 monitor-board4u restructure-board1 restructure-board2 restructure-board3 restructure-board4 restructure-board4u
 
@@ -36,12 +37,13 @@ help:
 		'make build-board4      Build board4 without upload' \
 		'make build-board4u     Build board4u without upload' \
 		'make build-all         Build every board project' \
-		'make monitor           Open the shared ITM monitor' \
-		'make monitor-board1    Alias of make monitor' \
-		'make monitor-board2    Alias of make monitor' \
-		'make monitor-board3    Alias of make monitor' \
-		'make monitor-board4    Alias of make monitor' \
-		'make monitor-board4u   Alias of make monitor'
+		'make monitor           Open the ITM monitor for MONITOR_BOARD or BOARD (default: board4)' \
+		'make monitor BOARD=board4u' \
+		'make monitor-board1    Open the ITM monitor for board1' \
+		'make monitor-board2    Open the ITM monitor for board2' \
+		'make monitor-board3    Open the ITM monitor for board3' \
+		'make monitor-board4    Open the ITM monitor for board4' \
+		'make monitor-board4u   Open the ITM monitor for board4u'
 
 board1: upload-board1
 
@@ -117,22 +119,22 @@ info:
 	st-info --probe
 
 monitor-board1:
-	./stlink_monitor.zsh
+	./stlink_monitor.zsh board1
 
 monitor-board2:
-	./stlink_monitor.zsh
+	./stlink_monitor.zsh board2
 
 monitor-board3:
-	./stlink_monitor.zsh
+	./stlink_monitor.zsh board3
 
 monitor-board4:
-	./stlink_monitor.zsh
+	./stlink_monitor.zsh board4
 
 monitor-board4u:
-	./stlink_monitor.zsh
+	./stlink_monitor.zsh board4u
 
 monitor:
-	./stlink_monitor.zsh
+	./stlink_monitor.zsh $(MONITOR_BOARD)
 
 restructure-board1:
 	cd ./board1 && ./restructure.sh

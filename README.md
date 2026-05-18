@@ -183,9 +183,12 @@ make info
 
 ```bash
 make monitor
+make monitor BOARD=board4u
+make monitor-board4u
 ```
 
-または `make monitor-board1` から `make monitor-board4u` でも同じスクリプトを実行できます。  
+`make monitor` はデフォルトで board4 向けに起動します。`BOARD=board4u` または `MONITOR_BOARD=board4u` を指定すると board4u 向けに起動します。
+または `make monitor-board1` から `make monitor-board4u` でも各ボード向けに同じスクリプトを実行できます。
 内部では `stlink_monitor.zsh` が `openocd` を起動し、ITM 出力を `nc localhost 3344` で表示します。
 
 ### 補助コマンド
