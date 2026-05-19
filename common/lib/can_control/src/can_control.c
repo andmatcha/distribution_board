@@ -297,7 +297,6 @@ static void can_control_process_rx_command(const CanRxCommand *command) {
       LOG("SERVO OPEN\n");
     } else if (command->payload.servo.data == 0) {
       servo_control(SERVO_DIR_STOP, SERVO_MODE_NORMAL);
-      LOG("SERVO STOP\n");
     } else {
       servo_control(SERVO_DIR_CLOSE, SERVO_MODE_NORMAL);
       LOG("SERVO CLOSE\n");
