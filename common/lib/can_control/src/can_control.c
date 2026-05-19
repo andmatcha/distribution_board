@@ -16,6 +16,8 @@
 #define CAN_RX_COMMAND_QUEUE_SIZE 8U
 #define CAN_RX_COMMANDS_PER_PROCESS CAN_RX_COMMAND_QUEUE_SIZE
 #define CAN_BUS_OFF_COOLDOWN_MS 1000U
+#define CAN_TX_STUCK_TIMEOUT_MS 100U
+#define CAN_TX_MAILBOX_ALL (CAN_TX_MAILBOX0 | CAN_TX_MAILBOX1 | CAN_TX_MAILBOX2)
 
 #if BOARD_CAN_CONTROL_ENABLE_RX
 typedef enum {
@@ -43,6 +45,7 @@ static volatile uint16_t encoder_tx_queue[CAN_TX_QUEUE_SIZE];
 static volatile uint8_t encoder_tx_head = 0;
 static volatile uint8_t encoder_tx_tail = 0;
 static uint32_t can_bus_off_until_tick = 0U;
+static uint32_t can_tx_mailboxes_full_since_tick = 0U;
 #if BOARD_CAN_CONTROL_ENABLE_RX
 static volatile CanRxCommand can_rx_command_queue[CAN_RX_COMMAND_QUEUE_SIZE];
 static volatile uint8_t can_rx_command_head = 0U;
@@ -52,6 +55,8 @@ static volatile uint32_t can_rx_command_drop_count = 0U;
 
 static bool can_control_start(void);
 static void can_control_handle_error(void);
+static bool can_control_is_bus_off(void);
+static bool can_control_recover_stuck_tx(uint32_t now_tick, uint32_t free_level);
 #if BOARD_CAN_CONTROL_ENABLE_RX
 static void can_filter_config(void);
 static bool can_rx_command_queue_push(const CanRxCommand *command);
@@ -67,6 +72,7 @@ void can_control_init(CAN_HandleTypeDef *hcan) {
   encoder_tx_head = 0U;
   encoder_tx_tail = 0U;
   can_bus_off_until_tick = 0U;
+  can_tx_mailboxes_full_since_tick = 0U;
 #if BOARD_CAN_CONTROL_ENABLE_RX
   can_rx_command_head = 0U;
   can_rx_command_tail = 0U;
@@ -90,8 +96,8 @@ bool can_control_enqueue_encoder_position(uint16_t position) {
 void can_control_process_tx(void) {
   CAN_TxHeaderTypeDef tx_header = {0};
   uint16_t position;
-  uint32_t error_code;
   uint32_t now_tick;
+  uint32_t free_level;
 
   if (hcan_ctrl == NULL) {
     return;
@@ -106,9 +112,13 @@ void can_control_process_tx(void) {
     return;
   }
 
-  error_code = HAL_CAN_GetError(hcan_ctrl);
-  if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
+  if (can_control_is_bus_off()) {
     can_control_handle_error();
+    return;
+  }
+
+  free_level = HAL_CAN_GetTxMailboxesFreeLevel(hcan_ctrl);
+  if (can_control_recover_stuck_tx(now_tick, free_level)) {
     return;
   }
 
@@ -119,7 +129,7 @@ void can_control_process_tx(void) {
   tx_header.DLC = 2;
   tx_header.TransmitGlobalTime = DISABLE;
 
-  while ((HAL_CAN_GetTxMailboxesFreeLevel(hcan_ctrl) > 0U) && can_tx_queue_peek(&position)) {
+  while ((free_level > 0U) && can_tx_queue_peek(&position)) {
     uint8_t tx_data[8] = {0};
     uint32_t tx_mailbox;
 
@@ -132,6 +142,7 @@ void can_control_process_tx(void) {
     }
 
     can_tx_queue_drop();
+    free_level = HAL_CAN_GetTxMailboxesFreeLevel(hcan_ctrl);
   }
 }
 
@@ -190,20 +201,56 @@ static bool can_control_start(void) {
 
 static void can_control_handle_error(void) {
   uint32_t error_code;
+  bool is_bus_off;
 
   if (hcan_ctrl == NULL) {
     return;
   }
 
   error_code = HAL_CAN_GetError(hcan_ctrl);
-  if ((error_code & HAL_CAN_ERROR_BOF) != 0U) {
+  is_bus_off = ((error_code & HAL_CAN_ERROR_BOF) != 0U) ||
+               ((hcan_ctrl->Instance->ESR & CAN_ESR_BOFF) != 0U);
+  if (is_bus_off) {
     can_bus_off_until_tick = HAL_GetTick() + CAN_BUS_OFF_COOLDOWN_MS;
   }
 
   (void)HAL_CAN_Stop(hcan_ctrl);
   (void)HAL_CAN_Init(hcan_ctrl);
   (void)HAL_CAN_ResetError(hcan_ctrl);
+  can_tx_mailboxes_full_since_tick = 0U;
   (void)can_control_start();
+}
+
+static bool can_control_is_bus_off(void) {
+  uint32_t error_code;
+
+  if (hcan_ctrl == NULL) {
+    return false;
+  }
+
+  error_code = HAL_CAN_GetError(hcan_ctrl);
+  return ((error_code & HAL_CAN_ERROR_BOF) != 0U) ||
+         ((hcan_ctrl->Instance->ESR & CAN_ESR_BOFF) != 0U);
+}
+
+static bool can_control_recover_stuck_tx(uint32_t now_tick, uint32_t free_level) {
+  if (free_level > 0U) {
+    can_tx_mailboxes_full_since_tick = 0U;
+    return false;
+  }
+
+  if (can_tx_mailboxes_full_since_tick == 0U) {
+    can_tx_mailboxes_full_since_tick = now_tick;
+    return false;
+  }
+
+  if ((uint32_t)(now_tick - can_tx_mailboxes_full_since_tick) < CAN_TX_STUCK_TIMEOUT_MS) {
+    return false;
+  }
+
+  (void)HAL_CAN_AbortTxRequest(hcan_ctrl, CAN_TX_MAILBOX_ALL);
+  can_control_handle_error();
+  return true;
 }
 
 static bool can_tx_queue_peek(uint16_t *position) {
