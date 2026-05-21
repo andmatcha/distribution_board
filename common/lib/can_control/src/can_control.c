@@ -155,8 +155,9 @@ static void can_filter_config(void) {
   filter_config.FilterScale = CAN_FILTERSCALE_16BIT;
   filter_config.FilterIdHigh = (CAN_ID_DC << 5);
   filter_config.FilterIdLow = (CAN_ID_SERVO << 5);
-  filter_config.FilterMaskIdHigh = 0;
-  filter_config.FilterMaskIdLow = 0;
+  /* In 16-bit ID list mode, the mask fields are the third and fourth ID slots. */
+  filter_config.FilterMaskIdHigh = (CAN_ID_DC << 5);
+  filter_config.FilterMaskIdLow = (CAN_ID_SERVO << 5);
   filter_config.FilterFIFOAssignment = CAN_RX_FIFO0;
   filter_config.FilterActivation = ENABLE;
   filter_config.SlaveStartFilterBank = 14;
