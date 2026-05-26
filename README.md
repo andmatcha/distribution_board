@@ -116,9 +116,9 @@ board4 は board2/3 と同じエンコーダ送信に加えて、CAN 受信で�
 - サーボは `TIM2_CH2` (`PA1`) を使います。TIM2 は prescaler `63`、period `19999` で、実装上 0.5 ms から 2.5 ms の PWM pulse を 0 度から 270 度へ対応させています。初期角度は 270 度です。
 - `servo_control()` は通常モードで 1 度ずつ、高速モードで 4 度ずつ現在角度を変えます。`OPEN` は角度を増やし、`CLOSE` は角度を減らし、`STOP` は現在角度を保持します。
 - INA219 は `I2C1` (`PB6=SCL`, `PB7=SDA`, 100 kHz) の 7-bit address `0x40` で接続します。
-- `board4/include/board_config.h` の `BOARD_SERVO_INA219_SHUNT_MILLIOHM` は現在 5 mΩ、`BOARD_SERVO_INA219_CURRENT_LSB_UA` は 200 uA です。この設定から calibration register を計算して書き込みます。
+- `board4/include/board_config.h` の `BOARD_SERVO_INA219_SHUNT_MILLIOHM` は現在 50 mΩ、`BOARD_SERVO_INA219_CURRENT_LSB_UA` は 200 uA です。この設定から calibration register を計算して書き込みます。
 - debug build では 500 ms ごとにサーボ電源の bus voltage、shunt voltage、current、power を `[INA219] servo ...` 形式でログ出力します。読み取りに失敗した場合も 500 ms 間隔で status と I2C error code をログ出力します。
-- シャント抵抗を 50 mΩ に変更する場合は `BOARD_SERVO_INA219_SHUNT_MILLIOHM` を `50U` に変更します。必要に応じて測定レンジに合わせて `BOARD_SERVO_INA219_CURRENT_LSB_UA` も調整します。
+- シャント抵抗値を変更する場合は `BOARD_SERVO_INA219_SHUNT_MILLIOHM` を実装値に合わせます。必要に応じて測定レンジに合わせて `BOARD_SERVO_INA219_CURRENT_LSB_UA` も調整します。
 
 ## board4u 実装
 
