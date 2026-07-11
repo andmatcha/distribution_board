@@ -109,12 +109,13 @@ board2 は CAN ID `0x302`、board3 は CAN ID `0x303` を使います。
 
 ## board4 実装
 
-board4 は board2/3 と同じエンコーダ送信に加えて、CAN 受信でサーボを制御し、INA219 でサーボ電源を監視します。
+このブランチの board4 は把持機構の代わりにシャベルを取り付ける構成です。board2/3 と同じエンコーダ送信に加えて、CAN 受信で360度連続回転サーボを制御し、INA219 でサーボ電源を監視します。
 
 - 起動時に LED を Green ON、Red/Yellow OFF にします。
 - エンコーダは `USART1` + RS485 DE `PA8` で position (`0x54`) を連続取得し、CAN ID `0x304` で送信します。
-- サーボは `TIM2_CH2` (`PA1`) を使います。TIM2 は prescaler `63`、period `19999` で、実装上 0.5 ms から 2.5 ms の PWM pulse を 0 度から 270 度へ対応させています。初期角度は 270 度です。
-- `servo_control()` は通常モードで 1 度ずつ、高速モードで 4 度ずつ現在角度を変えます。`OPEN` は角度を増やし、`CLOSE` は角度を減らし、`STOP` は現在角度を保持します。
+- サーボは `TIM2_CH2` (`PA1`) を使います。TIM2 は prescaler `63`、period `19999` の 50 Hz PWM です。起動時は停止用の 1.5 ms pulse を設定してからPWM出力を開始します。
+- CAN ID `0x1FF` の `data[4:5]` を signed 16 bit big-endian として扱い、負値で一定中速の正転、正値で一定中速の逆転、0で停止します。pulse width はそれぞれ 1.75 ms、1.25 ms、1.5 ms です。
+- 個体差や取付方向に合わせる場合は `board4/include/board_config.h` の `BOARD_SHOVEL_SERVO_*_PULSE_US` を調整します。
 - INA219 は `I2C1` (`PB6=SCL`, `PB7=SDA`, 100 kHz) の 7-bit address `0x40` で接続します。
 - `board4/include/board_config.h` の `BOARD_SERVO_INA219_SHUNT_MILLIOHM` は現在 50 mΩ、`BOARD_SERVO_INA219_CURRENT_LSB_UA` は 200 uA です。この設定から calibration register を計算して書き込みます。
 - debug build では 500 ms ごとにサーボ電源の bus voltage、shunt voltage、current、power を `[INA219] servo ...` 形式でログ出力します。読み取りに失敗した場合も 500 ms 間隔で status と I2C error code をログ出力します。

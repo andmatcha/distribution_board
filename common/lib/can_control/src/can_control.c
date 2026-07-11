@@ -322,14 +322,14 @@ static void can_control_process_rx_command(const CanRxCommand *command) {
 #if BOARD_CAN_CONTROL_ENABLE_SERVO_RX
   if (command->type == CAN_RX_COMMAND_SERVO) {
     if (command->payload.servo.data < 0) {
-      servo_control(SERVO_DIR_OPEN, SERVO_MODE_NORMAL);
-      LOG("SERVO OPEN\n");
+      servo_control(SERVO_DIR_FORWARD);
+      LOG("SHOVEL SERVO FORWARD\n");
     } else if (command->payload.servo.data == 0) {
-      servo_control(SERVO_DIR_STOP, SERVO_MODE_NORMAL);
-      LOG("SERVO STOP\n");
+      servo_control(SERVO_DIR_STOP);
+      LOG("SHOVEL SERVO STOP\n");
     } else {
-      servo_control(SERVO_DIR_CLOSE, SERVO_MODE_NORMAL);
-      LOG("SERVO CLOSE\n");
+      servo_control(SERVO_DIR_REVERSE);
+      LOG("SHOVEL SERVO REVERSE\n");
     }
   }
 #endif
